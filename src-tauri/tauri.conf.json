@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Settle",
+  "version": "0.1.0",
+  "identifier": "com.settle.app",
+  "build": {
+    "frontendDist": "../src",
+    "devUrl": null
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Settle",
+        "width": 1000,
+        "height": 720,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": false,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "compression": "lzma"
+      }
+    }
+  }
+}
+

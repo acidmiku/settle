@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Settle</title>
+    <link rel="stylesheet" href="./styles/themes.css" />
+    <link rel="stylesheet" href="./styles/main.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <header class="topbar" role="banner">
+        <div class="topbar__drag" data-role="titlebar-drag" data-tauri-drag-region>
+          <div class="brand" aria-label="Settle">
+            <span class="brand__name">Settle</span>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="Primary">
+          <button id="tab-notes" class="tab is-active" data-tab="notes" title="Day Notes (Ctrl/Cmd+1)">
+            <span class="tab__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7 3h10v18H7z" stroke="currentColor" stroke-width="1.6" opacity="0.9" />
+                <path d="M9 7h6M9 11h6M9 15h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="tab__label">Day Notes</span>
+          </button>
+          <button id="tab-brain" class="tab" data-tab="brain" title="Second Brain (Ctrl/Cmd+2)">
+            <span class="tab__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M8 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <path
+                  d="M16 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <path
+                  d="M16 14.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <path d="M10.2 9.2l3.6-2M10.2 11.8l3.6 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="tab__label">Second Brain</span>
+          </button>
+        </nav>
+
+        <div class="top-right">
+          <div class="top-actions">
+            <button id="btn-search" class="icon-btn" title="Search (Ctrl/Cmd+K)" aria-label="Search">
+              <span class="icon-btn__pill">Search</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                <path
+                  d="M10.5 18.2a7.7 7.7 0 1 1 0-15.4 7.7 7.7 0 0 1 0 15.4Z"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path d="M16.8 16.8 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button id="btn-settings" class="icon-btn" title="Settings (Ctrl/Cmd+,)" aria-label="Settings">
+              <span class="icon-btn__pill">Settings</span>
+              <span class="icon-btn__glyph" aria-hidden="true">⚙</span>
+            </button>
+          </div>
+
+          <div class="window-controls" aria-label="Window controls">
+            <button id="win-min" class="win-btn" type="button" aria-label="Minimize window" title="Minimize">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                <path d="M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button id="win-max" class="win-btn" type="button" aria-label="Maximize window" title="Maximize / Restore">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                <path d="M7 7h10v10H7z" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </button>
+            <button id="win-close" class="win-btn win-btn--danger" type="button" aria-label="Close window" title="Close">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+                <path d="M7 7 17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path d="M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="content">
+        <aside class="sidebar" aria-label="Sidebar">
+          <div id="sidebar-notes" class="sidebar__pane is-active" data-pane="notes">
+            <div class="sidebar__title">Dates</div>
+            <div id="dates-list" class="list" tabindex="0" aria-label="Date list"></div>
+          </div>
+          <div id="sidebar-brain" class="sidebar__pane" data-pane="brain">
+            <div class="sidebar__title">Categories</div>
+            <div class="sidebar__search">
+              <input id="cat-search" class="input" type="text" placeholder="Filter categories…" />
+            </div>
+            <div id="cats-list" class="list" tabindex="0" aria-label="Category list"></div>
+          </div>
+        </aside>
+
+        <main class="main" aria-label="Main content">
+          <section id="panel-notes" class="panel is-active" data-panel="notes" aria-label="Day Notes">
+            <div class="panel__header">
+              <div class="panel__title" id="notes-title">Today</div>
+              <div class="panel__actions">
+                <button id="btn-summarize" class="btn btn-accent" title="Summarize Day (Ctrl/Cmd+E)">
+                  ✨ Summarize Day
+                </button>
+              </div>
+            </div>
+            <div id="notes-list" class="timeline" aria-label="Notes timeline"></div>
+          </section>
+
+          <section id="panel-brain" class="panel" data-panel="brain" aria-label="Second Brain">
+            <div class="panel__header">
+              <div class="panel__title" id="brain-title">All</div>
+            </div>
+            <div id="brain-content" class="brain" aria-label="Second brain content"></div>
+          </section>
+
+          <section class="composer" aria-label="Note input">
+            <textarea
+              id="note-input"
+              class="textarea"
+              rows="1"
+              spellcheck="true"
+              placeholder="Type a note... (Shift+Enter to save)"
+            ></textarea>
+            <div class="composer__hints">
+              <span class="hint" data-role="hint-save">
+                <span class="keys" aria-hidden="true" data-role="hint-save-keys"><span class="key">⇧</span><span class="key">⏎</span></span>
+                <span class="hint__label" data-role="hint-save-label">Save</span>
+              </span>
+              <span class="hint">
+                <span class="keys" aria-hidden="true"><span class="key">⌃</span><span class="key">⏎</span></span>
+                <span class="hint__label">Copy &amp; Clear</span>
+              </span>
+              <span class="hint">
+                <span class="keys" aria-hidden="true"><span class="key">⎋</span></span>
+                <span class="hint__label">Hide</span>
+              </span>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <footer class="statusbar" role="status">
+        <div id="status-left" class="statusbar__left"></div>
+        <div id="status-right" class="statusbar__right">
+          <span id="llm-dot" class="status-dot is-unknown" title="LLM: not checked"></span>
+          <span id="status-text">—</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Search modal -->
+    <div id="search-modal" class="modal" aria-hidden="true">
+      <div class="modal__backdrop" data-close="search"></div>
+      <div class="modal__card" role="dialog" aria-modal="true" aria-label="Search">
+        <div class="modal__header">
+          <div class="modal__title">Search</div>
+          <button class="icon-btn" data-close="search" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <path d="M6.5 6.5 17.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M17.5 6.5 6.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <input id="search-input" class="input" type="text" placeholder="Search notes and second brain…" />
+          <div id="search-results" class="results" tabindex="0"></div>
+        </div>
+        <div class="modal__footer">
+          <span class="hint">
+            <span class="keys" aria-hidden="true"><span class="key">↑</span><span class="key">↓</span></span>
+            <span class="hint__label">Navigate</span>
+          </span>
+          <span class="hint">
+            <span class="keys" aria-hidden="true"><span class="key">⏎</span></span>
+            <span class="hint__label">Jump</span>
+          </span>
+          <span class="hint">
+            <span class="keys" aria-hidden="true"><span class="key">⎋</span></span>
+            <span class="hint__label">Close</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="settings-modal" class="modal" aria-hidden="true">
+      <div class="modal__backdrop" data-close="settings"></div>
+      <div class="modal__card modal__card--wide" role="dialog" aria-modal="true" aria-label="Settings">
+        <div class="modal__header">
+          <div class="modal__title">Settings</div>
+          <button class="icon-btn" data-close="settings" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <path d="M6.5 6.5 17.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M17.5 6.5 6.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="settings-grid">
+            <section class="settings-section">
+              <h3>API Configuration</h3>
+              <label class="field">
+                <span>Base URL</span>
+                <input id="set-base-url" class="input" type="text" />
+              </label>
+              <label class="field">
+                <span>API Key</span>
+                <div class="field__row">
+                  <input id="set-api-key" class="input" type="password" />
+                  <button id="toggle-api-key" class="btn btn-ghost" type="button">Show</button>
+                </div>
+              </label>
+              <label class="field">
+                <span>Model Name</span>
+                <input id="set-model" class="input" type="text" />
+              </label>
+              <div class="field__row">
+                <button id="btn-test-conn" class="btn">Test Connection</button>
+                <div id="conn-status" class="muted"></div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Behavior</h3>
+              <label class="field">
+                <span>Global Hotkey</span>
+                <input id="set-hotkey" class="input" type="text" />
+                <span class="muted small">Example: CmdOrCtrl+Shift+Space</span>
+              </label>
+              <label class="field">
+                <span>Categorization Mode</span>
+                <select id="set-mode" class="input">
+                  <option value="auto">Auto</option>
+                  <option value="suggest">Suggest</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Enter to Save</span>
+                <div class="field__row">
+                  <input id="set-enter-save" type="checkbox" />
+                  <span class="muted small">Swap Enter and Shift+Enter behaviors in the main input.</span>
+                </div>
+              </label>
+              <label class="field">
+                <span>Theme</span>
+                <select id="set-theme" class="input">
+                  <option value="system">System</option>
+                  <optgroup label="Light">
+                    <option value="terminal-light-graphite">Graphite Paper</option>
+                    <option value="terminal-light-sepia">Sepia Ledger</option>
+                    <option value="terminal-light-cyan">Cyan Blueprint</option>
+                    <option value="terminal-light-matcha">Matcha Terminal</option>
+                    <option value="terminal-light-lavender">Lavender Static</option>
+                    <option value="terminal-light-peach">Peach Punchcard</option>
+                  </optgroup>
+                  <optgroup label="Dark">
+                    <option value="terminal-dark-phosphor">Phosphor</option>
+                    <option value="terminal-dark-amber">Amber</option>
+                    <option value="terminal-dark-violet">Violet</option>
+                    <option value="terminal-dark-oceanic">Oceanic</option>
+                    <option value="terminal-dark-ruby">Ruby</option>
+                    <option value="terminal-dark-sandstorm">Sandstorm</option>
+                  </optgroup>
+                </select>
+              </label>
+            </section>
+
+            <section class="settings-section">
+              <h3>Data</h3>
+              <div class="field">
+                <span>Database</span>
+                <div id="db-info" class="muted small">—</div>
+              </div>
+              <div class="field__row">
+                <button id="btn-export-json" class="btn">Export JSON</button>
+                <button id="btn-export-md" class="btn">Export Markdown</button>
+              </div>
+              <div id="export-status" class="muted small"></div>
+            </section>
+          </div>
+        </div>
+        <div class="modal__footer">
+          <span class="hint">
+            <span class="keys" aria-hidden="true"><span class="key">⌃</span><span class="key">,</span></span>
+            <span class="hint__label">Settings</span>
+          </span>
+          <span class="hint">
+            <span class="keys" aria-hidden="true"><span class="key">⎋</span></span>
+            <span class="hint__label">Close</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm modal -->
+    <div id="confirm-modal" class="modal" aria-hidden="true">
+      <div class="modal__backdrop" data-close="confirm"></div>
+      <div class="modal__card" role="dialog" aria-modal="true" aria-label="Confirm">
+        <div class="modal__header">
+          <div id="confirm-title" class="modal__title">Confirm</div>
+          <button class="icon-btn" data-close="confirm" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <path d="M6.5 6.5 17.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M17.5 6.5 6.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div id="confirm-message" class="confirm__message">—</div>
+        </div>
+        <div class="modal__footer">
+          <button id="confirm-ok" class="btn btn-accent">Confirm</button>
+          <button id="confirm-cancel" class="btn btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summarize review modal (suggest mode) -->
+    <div id="review-modal" class="modal" aria-hidden="true">
+      <div class="modal__backdrop" data-close="review"></div>
+      <div class="modal__card modal__card--wide" role="dialog" aria-modal="true" aria-label="Review summary">
+        <div class="modal__header">
+          <div class="modal__title">Review &amp; Save</div>
+          <button class="icon-btn" data-close="review" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <path d="M6.5 6.5 17.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M17.5 6.5 6.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="settings-grid">
+            <section class="settings-section">
+              <h3>Day</h3>
+              <label class="field">
+                <span>Title</span>
+                <input id="review-title" class="input" type="text" />
+              </label>
+              <label class="field">
+                <span>Summary</span>
+                <textarea id="review-summary" class="textarea textarea--small" rows="4"></textarea>
+              </label>
+            </section>
+
+            <section class="settings-section">
+              <h3>Categories &amp; Entries</h3>
+              <div id="review-cats" class="review"></div>
+              <div class="muted small">Tip: You can rename categories and edit entry text before saving.</div>
+            </section>
+          </div>
+        </div>
+        <div class="modal__footer">
+          <button id="btn-approve" class="btn btn-accent">Approve &amp; Save</button>
+          <button id="btn-cancel-review" class="btn btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>
+

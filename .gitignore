@@ -1,0 +1,65 @@
+############################
+# Settle (Rust + Tauri)    #
+############################
+
+############################
+# OS files
+############################
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+############################
+# Editors / IDEs
+############################
+.idea/
+.vscode/
+.cursor/
+*.code-workspace
+
+############################
+# Logs / temp
+############################
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+
+############################
+# Secrets / local configs
+############################
+.env
+.env.*
+*.pem
+*.key
+
+############################
+# Rust / Cargo
+############################
+target/
+**/*.rs.bk
+Cargo.lock.user
+
+############################
+# Tauri build outputs / generated files
+############################
+src-tauri/target/
+src-tauri/.tauri/
+src-tauri/gen/
+
+############################
+# Windows build artifacts (if any end up outside target/)
+############################
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+
+############################
+# My stupid shit
+############################
+scripts/
+AGENTS.md
