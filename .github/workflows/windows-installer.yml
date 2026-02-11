@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - "v*"
+      - "mac-testing"
 
 permissions:
   contents: write

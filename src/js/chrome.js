@@ -66,9 +66,11 @@ export function initWindowChrome() {
 
   // Titlebar interactions:
   // - Double click to toggle maximize.
-  // - Drag only after the pointer moves a few pixels (prevents "restore on click").
-  // Note: `startDragging()` is more reliable when initiated from pointer events
-  // tied to the drag region element itself.
+  //
+  // IMPORTANT (macOS): Avoid implementing custom `startDragging()` logic.
+  // On macOS/WebKit this can make the whole UI feel unclickable/unfocusable
+  // (clicks interpreted as drags). We rely on Tauri's built-in
+  // `data-tauri-drag-region` handling instead.
   const dragZone = document.querySelector("[data-role='titlebar-drag']");
   const isInteractive = (t) => t?.closest?.("button,a,input,textarea,select,summary,details,[role='button']");
 
@@ -86,64 +88,6 @@ export function initWindowChrome() {
     } catch {
       // ignore
     }
-  });
-
-  let dragArmed = false;
-  let dragStarted = false;
-  let startX = 0;
-  let startY = 0;
-  let pointerId = null;
-
-  const disarm = () => {
-    dragArmed = false;
-    dragStarted = false;
-    pointerId = null;
-  };
-
-  dragZone?.addEventListener("pointerdown", (e) => {
-    // left click only (mouse). For touch/stylus, rely on default OS behavior.
-    if (e.pointerType !== "mouse") return;
-    if (e.button !== 0) return;
-    if (isInteractive(e.target)) return;
-    dragArmed = true;
-    dragStarted = false;
-    startX = e.clientX;
-    startY = e.clientY;
-    pointerId = e.pointerId;
-    try {
-      dragZone.setPointerCapture?.(e.pointerId);
-    } catch {
-      // ignore
-    }
-  });
-
-  // Use window-level move/up so we don't lose events when leaving the dragZone.
-  window.addEventListener("pointermove", async (e) => {
-    try {
-      if (!dragArmed || dragStarted) return;
-      if (e.pointerType !== "mouse") return;
-      if (pointerId != null && e.pointerId !== pointerId) return;
-      const dx = Math.abs(e.clientX - startX);
-      const dy = Math.abs(e.clientY - startY);
-      if (dx + dy < 6) return; // small threshold to avoid restoring on click
-      if (!appWindow.startDragging) return;
-      dragStarted = true;
-      await appWindow.startDragging();
-    } catch {
-      // ignore
-    } finally {
-      // If startDragging fails or ends, don't keep it armed.
-      disarm();
-    }
-  });
-
-  window.addEventListener("pointerup", (e) => {
-    if (pointerId != null && e.pointerId !== pointerId) return;
-    disarm();
-  });
-  window.addEventListener("pointercancel", (e) => {
-    if (pointerId != null && e.pointerId !== pointerId) return;
-    disarm();
   });
 
   // Keep maximize button state in sync if available

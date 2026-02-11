@@ -22,23 +22,10 @@ body {
   user-select: none;
 }
 
-/* Tauri drag regions (Windows/WebView2) */
-*[data-tauri-drag-region] {
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
-button,
-a,
-input,
-textarea,
-select,
-summary,
-details,
-[role="button"] {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
+/* Tauri drag regions:
+   We rely on the `data-tauri-drag-region` attribute (handled by Tauri).
+   Avoid `-webkit-app-region` here because it can behave inconsistently
+   across webviews (notably on macOS/WebKit). */
 
 /* Let note content/selectable fields still select text */
 .note__content,
