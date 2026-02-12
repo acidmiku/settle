@@ -1,9 +1,23 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 const FOCUS_EVENT: &str = "settle:focus-input";
+
+pub fn focus_frontend(w: &WebviewWindow) {
+  // On macOS/WKWebView, focus can be flaky immediately after showing/resizing.
+  // Do an immediate best-effort focus, then retry shortly after.
+  let _ = w.set_focus();
+  let _ = w.emit(FOCUS_EVENT, ());
+
+  let w2 = w.clone();
+  tauri::async_runtime::spawn(async move {
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let _ = w2.set_focus();
+    let _ = w2.emit(FOCUS_EVENT, ());
+  });
+}
 
 pub fn register_global_hotkey(app: &AppHandle, accelerator: &str) -> tauri::Result<()> {
   let accel = accelerator.trim();
@@ -46,8 +60,7 @@ pub fn show_and_focus(app: &AppHandle) -> tauri::Result<()> {
   if let Some(w) = app.get_webview_window("main") {
     let _ = w.unminimize();
     let _ = w.show();
-    let _ = w.set_focus();
-    let _ = w.emit(FOCUS_EVENT, ());
+    focus_frontend(&w);
   }
   Ok(())
 }
@@ -68,8 +81,7 @@ pub fn toggle_show_hide(app: &AppHandle) -> tauri::Result<()> {
       Ok(false) => {
         let _ = w.unminimize();
         let _ = w.show();
-        let _ = w.set_focus();
-        let _ = w.emit(FOCUS_EVENT, ());
+        focus_frontend(&w);
       }
       Err(_) => {
         // Best-effort fallback: show & focus.

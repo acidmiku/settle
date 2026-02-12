@@ -11,14 +11,12 @@ use commands::AppState;
 use tauri::{
   menu::{Menu, MenuItem},
   tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-  Emitter, Manager,
+  Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-const FOCUS_EVENT: &str = "settle:focus-input";
-
 fn main() {
-  tauri::Builder::default()
+  let app = tauri::Builder::default()
     .plugin(tauri_plugin_clipboard_manager::init())
     .setup(|app| {
       // DB
@@ -87,8 +85,7 @@ fn main() {
             // re-emit the frontend focus event to keep the UI responsive.
             tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_) => {
               if cfg!(target_os = "macos") {
-                let _ = w2.set_focus();
-                let _ = w2.emit(FOCUS_EVENT, ());
+                hotkey::focus_frontend(&w2);
               }
             }
             _ => {}
@@ -122,8 +119,23 @@ fn main() {
       commands::show_main_window,
       commands::copy_to_clipboard
     ])
-    .run(tauri::generate_context!())
+    .build(tauri::generate_context!())
     .expect("error while running settle");
+
+  app.run(|app_handle, event| {
+    // macOS: when the app is re-activated (e.g., via the dock), WKWebView can
+    // ignore the next click. Re-focus the webview to reduce "dead UI" reports.
+    if cfg!(target_os = "macos") {
+      if let tauri::RunEvent::Resumed = event {
+        if let Some(w) = app_handle.get_webview_window("main") {
+          // Don't force-show here; just try to restore focus if it is visible.
+          if w.is_visible().unwrap_or(false) {
+            hotkey::focus_frontend(&w);
+          }
+        }
+      }
+    }
+  });
 }
 
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
