@@ -70,26 +70,6 @@ fn main() {
       // Tray icon + menu
       setup_tray(app.handle())?;
 
-      // macOS: Ensure the main webview accepts the first click when inactive.
-      //
-      // This mitigates the common WKWebView behavior where the first click only
-      // activates the window (dock click / after resize / after being inactive),
-      // making the UI feel "dead" until the second click or a keypress.
-      //
-      // NOTE: this must be set at webview creation time, so we recreate the
-      // window using the config as a template.
-      #[cfg(target_os = "macos")]
-      {
-        if let Some(existing) = app.get_webview_window("main") {
-          if let Some(conf) = app.config().app.windows.iter().find(|c| c.label == "main").cloned() {
-            let _ = existing.destroy();
-            let _ = tauri::WebviewWindowBuilder::from_config(app, &conf)?
-              .accept_first_mouse(true)
-              .build()?;
-          }
-        }
-      }
-
       // Intercept close to hide instead.
       if let Some(w) = app.get_webview_window("main") {
         let handle = app.handle().clone();
