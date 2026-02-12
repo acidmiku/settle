@@ -11,9 +11,11 @@ use commands::AppState;
 use tauri::{
   menu::{Menu, MenuItem},
   tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-  Manager,
+  Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+const FOCUS_EVENT: &str = "settle:focus-input";
 
 fn main() {
   tauri::Builder::default()
@@ -73,10 +75,23 @@ fn main() {
       // Intercept close to hide instead.
       if let Some(w) = app.get_webview_window("main") {
         let handle = app.handle().clone();
+        let w2 = w.clone();
         w.on_window_event(move |e| {
-          if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-            api.prevent_close();
-            let _ = hotkey::hide(&handle);
+          match e {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+              api.prevent_close();
+              let _ = hotkey::hide(&handle);
+            }
+            // macOS/WebKit can occasionally lose effective input routing after
+            // resize/activate (e.g., clicking the dock icon). Re-focus and
+            // re-emit the frontend focus event to keep the UI responsive.
+            tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_) => {
+              if cfg!(target_os = "macos") {
+                let _ = w2.set_focus();
+                let _ = w2.emit(FOCUS_EVENT, ());
+              }
+            }
+            _ => {}
           }
         });
       }

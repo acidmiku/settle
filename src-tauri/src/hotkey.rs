@@ -44,9 +44,9 @@ pub fn handle_shortcut_event(app: &AppHandle, event: ShortcutState) {
 
 pub fn show_and_focus(app: &AppHandle) -> tauri::Result<()> {
   if let Some(w) = app.get_webview_window("main") {
+    let _ = w.unminimize();
     let _ = w.show();
     let _ = w.set_focus();
-    let _ = w.unminimize();
     let _ = w.emit(FOCUS_EVENT, ());
   }
   Ok(())
@@ -66,9 +66,9 @@ pub fn toggle_show_hide(app: &AppHandle) -> tauri::Result<()> {
         let _ = w.hide();
       }
       Ok(false) => {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
-        let _ = w.unminimize();
         let _ = w.emit(FOCUS_EVENT, ());
       }
       Err(_) => {
