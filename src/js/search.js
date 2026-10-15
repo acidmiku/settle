@@ -1,120 +1,43 @@
-import { invoke } from "./api.js";
-import { debounce } from "./utils.js";
-import { toast } from "./toast.js";
+import { invoke } from './api.js';
+import { $, debounce, escapeHtml, openDialog } from './utils.js';
+import { toast } from './toast.js';
 
-export function createSearchController({ modalEl, inputEl, resultsEl, onJumpNote, onJumpCategoryEntry }) {
-  let results = [];
-  let activeIdx = 0;
-
-  const doSearch = debounce(async () => {
-    const q = inputEl.value.trim();
-    if (!q) {
-      results = [];
-      render();
-      return;
-    }
+export function createSearch(onOpen) {
+  const dialog = $('search-dialog'), input = $('search-input'), results = $('search-results');
+  let revision = 0, selected = 0, rows = [];
+  function select(index) {
+    selected = index;
+    [...results.querySelectorAll('button')].forEach((el,i) => el.classList.toggle('is-selected', i === selected));
+    results.children[selected]?.scrollIntoView({ block: 'nearest' });
+  }
+  async function jump(row) {
+    if (!row) return;
     try {
-      results = await invoke("search", { query: q, limit: 50 });
-      activeIdx = 0;
-      render();
-    } catch (e) {
-      toast(`Search failed: ${String(e)}`, { kind: "error" });
-    }
-  }, 120);
-
-  function open() {
-    modalEl.classList.add("is-open");
-    modalEl.setAttribute("aria-hidden", "false");
-    inputEl.value = "";
-    results = [];
-    render();
-    setTimeout(() => inputEl.focus(), 0);
+      const notes = await invoke('list_notes_for_date', { localDate: row.local_date });
+      const note = notes.find(n => n.id === row.id);
+      if (!note) throw new Error('This note was deleted. Search again.');
+      dialog.close();
+      onOpen(note);
+    } catch (e) { toast(String(e), { kind: 'error' }); }
   }
-
-  function close() {
-    modalEl.classList.remove("is-open");
-    modalEl.setAttribute("aria-hidden", "true");
+  async function search(version) {
+    const query = input.value.trim();
+    if (!query) { results.innerHTML = '<p class="empty">A word, a thought, something you wrote.</p>'; return; }
+    try {
+      const found = await invoke('search', { query, limit: 60 });
+      if (version !== revision || !dialog.open) return;
+      rows = found;
+      results.innerHTML = rows.length ? rows.map(row => `<button class="search-result"><time>${escapeHtml(row.local_date)}</time><p>${escapeHtml(row.snippet)}</p></button>`).join('') : '<p class="empty">No notes found. Try another word.</p>';
+      [...results.querySelectorAll('button')].forEach((button,i) => button.onclick = () => jump(rows[i]));
+      select(0);
+    } catch (e) { if (version === revision) results.textContent = `Search failed: ${e}`; }
   }
-
-  function render() {
-    resultsEl.innerHTML = "";
-    if (!results.length) {
-      resultsEl.innerHTML = `<div class="result"><div class="result__meta muted">No results</div></div>`;
-      return;
-    }
-    results.forEach((r, idx) => {
-      const el = document.createElement("div");
-      el.className = `result ${idx === activeIdx ? "is-active" : ""}`;
-      el.dataset.idx = String(idx);
-      const kind = r.kind === "note" ? "Raw note" : "Second brain";
-      el.innerHTML = `
-        <div class="result__meta">${kind} · ${r.local_date}</div>
-        <div class="result__text">${safeSnippet(r.snippet || "")}</div>
-      `;
-      el.addEventListener("click", () => jump(idx));
-      resultsEl.appendChild(el);
-    });
-  }
-
-  function jump(idx) {
-    const r = results[idx];
-    if (!r) return;
-    close();
-    if (r.kind === "note") {
-      onJumpNote?.(r.id, r.local_date);
-      return;
-    }
-    if (r.kind === "category_entry") {
-      if (!r.category_id) return;
-      onJumpCategoryEntry?.(r.category_id, r.id);
-      return;
-    }
-  }
-
-  inputEl.addEventListener("input", doSearch);
-  inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      activeIdx = Math.min(results.length - 1, activeIdx + 1);
-      render();
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      activeIdx = Math.max(0, activeIdx - 1);
-      render();
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      jump(activeIdx);
-    }
+  const delayed = debounce(search, 140);
+  input.addEventListener('input', () => { rows = []; results.textContent = 'Searching…'; delayed(++revision); });
+  dialog.addEventListener('keydown', e => {
+    if (e.isComposing) return;
+    if (['ArrowDown','ArrowUp'].includes(e.key) && rows.length) { e.preventDefault(); select((selected + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length); }
+    if (e.key === 'Enter' && e.target === input) { e.preventDefault(); jump(rows[selected]); }
   });
-
-  modalEl.addEventListener("click", (e) => {
-    const t = e.target;
-    const closeBtn = t?.closest?.('[data-close="search"]');
-    if (closeBtn) close();
-  });
-
-  return { open, close };
+  return { open() { openDialog(dialog, input); input.select(); search(++revision); } };
 }
-
-function safeSnippet(htmlish) {
-  // Only allow <mark> tags produced by SQLite snippet(). Everything else is escaped.
-  const s = String(htmlish);
-  const OPEN = "__MARK_OPEN__";
-  const CLOSE = "__MARK_CLOSE__";
-  const tmp = s.replaceAll("<mark>", OPEN).replaceAll("</mark>", CLOSE);
-  const escaped = tmp
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-  return escaped.replaceAll(OPEN, "<mark>").replaceAll(CLOSE, "</mark>");
-}
-

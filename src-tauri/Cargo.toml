@@ -1,12 +1,12 @@
 [package]
 name = "settle"
 version = "0.1.0"
-description = "Settle — keyboard-first smart notebook"
+description = "Settle — a local, editor-first notebook"
 authors = ["you"]
 license = "MIT"
 repository = ""
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.88"
 
 # Tauri v2 expects a build script.
 build = "build.rs"
@@ -29,13 +29,10 @@ rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 
-# HTTP for OpenAI-compatible LLM APIs
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["time"] }
-
 # Global hotkey + clipboard (Rust-side usage)
 tauri-plugin-global-shortcut = "2.3.1"
 tauri-plugin-clipboard-manager = "2.3.2"
+open = "5.4.4"
 
 [profile.release]
 panic = "abort"

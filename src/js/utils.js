@@ -1,47 +1,40 @@
+export const $ = (id) => document.getElementById(id);
+export const isMac = () => document.documentElement.dataset.platform === 'macos';
+export const isMod = (e) => isMac() ? e.metaKey : e.ctrlKey;
+export function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 export function debounce(fn, ms) {
-  let t = null;
-  return (...args) => {
-    if (t) clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
-
-export function todayLocalDate() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+export function openDialog(dialog, focus) {
+  document.querySelectorAll('dialog[open]').forEach(d => { if (d !== dialog) d.close(); });
+  if (!dialog.open) dialog.showModal();
+  focus?.focus();
 }
-
-export function escapeHtml(s) {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+export function initDialogs() {
+  document.querySelectorAll('dialog').forEach(dialog => {
+    dialog.querySelectorAll('[data-close-dialog]').forEach(btn => btn.addEventListener('click', () => dialog.close()));
+    dialog.addEventListener('click', e => {
+      if (e.target !== dialog) return;
+      const r = dialog.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
+    });
+  });
 }
-
-// Basic markdown: **bold**, *italic*, `code`, links http(s)://
-export function renderBasicMarkdown(text) {
-  let out = escapeHtml(text);
-  out = out.replaceAll(/`([^`]+)`/g, "<code>$1</code>");
-  out = out.replaceAll(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  out = out.replaceAll(/\*([^*]+)\*/g, "<em>$1</em>");
-  out = out.replaceAll(
-    /(https?:\/\/[^\s<]+)/g,
-    (m) => `<a href="${m}" target="_blank" rel="noreferrer">${m}</a>`
-  );
-  out = out.replaceAll("\n", "<br/>");
-  return out;
+export function confirmAction(title, message, action = 'Discard') {
+  const dialog = $('confirm-dialog');
+  if (dialog.open) return Promise.resolve(false);
+  $('confirm-title').textContent = title;
+  $('confirm-message').textContent = message;
+  $('confirm-ok').textContent = action;
+  dialog.returnValue = '';
+  dialog.showModal();
+  $('confirm-cancel').focus();
+  return new Promise(resolve => {
+    $('confirm-ok').onclick = () => dialog.close('yes');
+    $('confirm-cancel').onclick = () => dialog.close('no');
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'yes'), { once: true });
+  });
 }
-
-export function isMac() {
-  return navigator.platform.toLowerCase().includes("mac");
-}
-
-export function modKeyLabel() {
-  return isMac() ? "Cmd" : "Ctrl";
-}
-

@@ -1,184 +1,75 @@
-import { invoke } from "./api.js";
-import { toast } from "./toast.js";
+import { invoke } from './api.js';
+import { $, escapeHtml, openDialog } from './utils.js';
+import { toast } from './toast.js';
 
-export function createSettingsController({
-  modalEl,
-  btnOpen,
-  baseUrlEl,
-  apiKeyEl,
-  modelEl,
-  hotkeyEl,
-  modeEl,
-  themeEl,
-  btnTestConn,
-  connStatusEl,
-  btnToggleKey,
-  dbInfoEl,
-  btnExportJson,
-  btnExportMd,
-  exportStatusEl,
-  onConnectionTestResult,
-  enterSaveEl,
-}) {
-  let settings = {};
-
-  function open() {
-    modalEl.classList.add("is-open");
-    modalEl.setAttribute("aria-hidden", "false");
-    setTimeout(() => baseUrlEl.focus(), 0);
+export const DESIGNS = [
+  ['kiln','Kiln','#242422','#e5e3dd','#ff681b'],
+  ['blackbox','Blackbox','#0b0d09','#f1f0e5','#b6f321'],
+  ['optic','Optic','#fafaf8','#101219','#1837ff'],
+  ['phosphor','Phosphor','#061b16','#d1f4e8','#8bf1c9'],
+  ['sidecar','Sidecar','#131e26','#f1f4f8','#ff813e'],
+  ['cobalt','Cobalt','#1738ee','#fff','#e2ff48'],
+  ['scratch','Scratch','#202329','#f0f0f3','#ff5579'],
+  ['redline','Redline','#f2f0e9','#10100f','#ed2b20'],
+  ['frost','Frost','#f2f5f8','#252e38','#0087a6'],
+  ['tape','Tape','#ebf23e','#181b08','#181b08'],
+];
+export function createSettings(settings, flushWorkspace) {
+  const dialog = $('settings-dialog');
+  let savingDesign = false;
+  $('design-picker').innerHTML = DESIGNS.map(([id,name,bg,fg,accent],i) => `<button class="design-option" data-value="${id}" aria-label="${name}${id === 'scratch' ? ' (default)' : ''}" aria-pressed="false" style="--preview-bg:${bg};--preview-fg:${fg};--preview-accent:${accent}"><span class="design-preview" aria-hidden="true"><i></i><i></i><i></i></span><span class="design-name">${escapeHtml(name)}<small>${String(i+1).padStart(2,'0')}</small></span></button>`).join('');
+  function applyDesign(id) {
+    const design = DESIGNS.some(d => d[0] === id) ? id : 'scratch';
+    document.documentElement.dataset.design = design;
+    document.querySelectorAll('.design-option').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.value === design)));
+    window.dispatchEvent(new CustomEvent('settle:design-changed'));
   }
-
-  function close() {
-    modalEl.classList.remove("is-open");
-    modalEl.setAttribute("aria-hidden", "true");
-  }
-
-  async function load() {
-    settings = await invoke("get_settings");
-    baseUrlEl.value = settings.api_base_url || "";
-    apiKeyEl.value = settings.api_key || "";
-    modelEl.value = settings.model_name || "";
-    hotkeyEl.value = settings.global_hotkey || "";
-    modeEl.value = settings.categorization_mode || "auto";
-    const rawTheme = settings.theme || "system";
-    const normalizedTheme =
-      rawTheme === "dark"
-        ? "terminal-dark-phosphor"
-        : rawTheme === "light"
-          ? "terminal-light-graphite"
-          : rawTheme;
-    themeEl.value = normalizedTheme;
-    applyTheme(normalizedTheme);
-
-    const saveMode = settings.save_key_mode || "shift_enter";
-    applySaveMode(saveMode);
-    if (enterSaveEl) {
-      enterSaveEl.checked = saveMode === "enter";
-    }
-
-    const info = await invoke("get_db_info");
-    dbInfoEl.textContent = `${info.path} (${prettyBytes(info.size_bytes)})`;
-  }
-
-  async function save(key, value) {
-    settings[key] = value;
-    try {
-      await invoke("set_setting", { key, value: String(value) });
-    } catch (e) {
-      toast(`Failed to save setting: ${String(e)}`, { kind: "error" });
-    }
-  }
-
-  function applyTheme(theme) {
-    const root = document.documentElement;
-    if (theme && theme.startsWith("terminal-")) {
-      root.dataset.theme = theme;
-      return;
-    }
-    if (theme === "dark") {
-      // Back-compat for older saved values.
-      root.dataset.theme = "terminal-dark-phosphor";
-      return;
-    }
-    if (theme === "light") {
-      // Back-compat for older saved values.
-      root.dataset.theme = "terminal-light-graphite";
-      return;
-    }
-
-    // system (default)
-    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-    root.dataset.theme = prefersDark ? "terminal-dark-phosphor" : "terminal-light-graphite";
-  }
-
   function applySaveMode(mode) {
-    const root = document.documentElement;
-    const normalized = mode === "enter" ? "enter" : "shift_enter";
-    root.dataset.saveMode = normalized;
-    window.dispatchEvent(new CustomEvent("settle:save-mode-changed", { detail: { mode: normalized } }));
+    document.documentElement.dataset.saveMode = mode === 'enter' ? 'enter' : 'shift_enter';
+    $('set-enter-save').checked = mode === 'enter';
+    $('btn-save').title = `Save (Ctrl/Cmd+S or ${mode === 'enter' ? 'Enter' : 'Shift+Enter'})`;
   }
-
-  baseUrlEl.addEventListener("change", () => save("api_base_url", baseUrlEl.value.trim()));
-  apiKeyEl.addEventListener("change", () => save("api_key", apiKeyEl.value));
-  modelEl.addEventListener("change", () => save("model_name", modelEl.value.trim()));
-  hotkeyEl.addEventListener("change", () => save("global_hotkey", hotkeyEl.value.trim()));
-  modeEl.addEventListener("change", () => save("categorization_mode", modeEl.value));
-  themeEl.addEventListener("change", () => {
-    applyTheme(themeEl.value);
-    save("theme", themeEl.value);
+  $('design-picker').addEventListener('click', async e => {
+    const button = e.target.closest('.design-option');
+    if (!button || savingDesign) return;
+    savingDesign = true;
+    const value = button.dataset.value, previous = settings.design || 'scratch';
+    applyDesign(value);
+    try { await invoke('set_setting', { key: 'design', value }); settings.design = value; }
+    catch (error) { applyDesign(previous); toast(`Design could not be saved: ${error}`, { kind: 'error' }); }
+    finally { savingDesign = false; }
   });
-
-  enterSaveEl?.addEventListener("change", () => {
-    const mode = enterSaveEl.checked ? "enter" : "shift_enter";
-    applySaveMode(mode);
-    save("save_key_mode", mode);
+  $('set-enter-save').addEventListener('change', async () => {
+    const control = $('set-enter-save'), value = control.checked ? 'enter' : 'shift_enter';
+    control.disabled = true;
+    try { await invoke('set_setting', { key: 'save_key_mode', value }); settings.save_key_mode = value; applySaveMode(value); }
+    catch (e) { applySaveMode(settings.save_key_mode); toast(`Setting failed: ${e}`, { kind: 'error' }); }
+    finally { control.disabled = false; }
   });
-
-  btnTestConn.addEventListener("click", async () => {
-    connStatusEl.textContent = "Testing…";
-    try {
-      await invoke("test_llm_connection");
-      connStatusEl.textContent = "Connected ✓";
-      toast("Connection OK");
-      onConnectionTestResult?.({ ok: true });
-    } catch (e) {
-      connStatusEl.textContent = "Failed";
-      toast(`Connection failed: ${String(e)}`, { kind: "error" });
-      onConnectionTestResult?.({ ok: false, error: String(e) });
-    }
+  $('set-hotkey').value = settings.global_hotkey ?? 'CmdOrCtrl+Shift+Space';
+  $('hotkey-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const value = $('set-hotkey').value.trim(), button = e.target.querySelector('button');
+    button.disabled = true;
+    try { await invoke('set_setting', { key: 'global_hotkey', value }); settings.global_hotkey = value; $('hotkey-status').textContent = value ? 'Shortcut registered.' : 'Global shortcut disabled.'; }
+    catch (error) { $('hotkey-status').textContent = `Could not apply: ${error}`; }
+    finally { button.disabled = false; }
   });
-
-  btnToggleKey.addEventListener("click", () => {
-    const isPw = apiKeyEl.getAttribute("type") === "password";
-    apiKeyEl.setAttribute("type", isPw ? "text" : "password");
-    btnToggleKey.textContent = isPw ? "Hide" : "Show";
-  });
-
-  btnExportJson.addEventListener("click", async () => {
-    exportStatusEl.textContent = "Exporting JSON…";
-    try {
-      const res = await invoke("export_json");
-      exportStatusEl.textContent = `Exported to ${res.export_dir}`;
-      toast("Exported JSON");
-    } catch (e) {
-      exportStatusEl.textContent = "Export failed";
-      toast(`Export failed: ${String(e)}`, { kind: "error" });
-    }
-  });
-
-  btnExportMd.addEventListener("click", async () => {
-    exportStatusEl.textContent = "Exporting Markdown…";
-    try {
-      const res = await invoke("export_markdown");
-      exportStatusEl.textContent = `Exported to ${res.export_dir}`;
-      toast("Exported Markdown");
-    } catch (e) {
-      exportStatusEl.textContent = "Export failed";
-      toast(`Export failed: ${String(e)}`, { kind: "error" });
-    }
-  });
-
-  modalEl.addEventListener("click", (e) => {
-    const t = e.target;
-    const closeBtn = t?.closest?.('[data-close="settings"]');
-    if (closeBtn) close();
-  });
-
-  window.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", () => {
-    if ((settings.theme || "system") === "system") applyTheme("system");
-  });
-
-  return { open, close, load, applyTheme };
+  for (const [id, command] of [['btn-export-json','export_json'],['btn-export-md','export_markdown']]) {
+    $(id).onclick = async () => {
+      $(id).disabled = true;
+      $('export-status').textContent = 'Exporting…';
+      try { await flushWorkspace(); const result = await invoke(command); $('export-status').textContent = `Saved ${result.files_written} file(s) to ${result.export_dir}`; }
+      catch (e) { $('export-status').textContent = `Export failed: ${e}`; }
+      finally { $(id).disabled = false; }
+    };
+  }
+  async function open() {
+    openDialog(dialog, dialog.querySelector('[aria-pressed="true"]'));
+    try { const info = await invoke('get_db_info'); $('db-info').textContent = `${info.path} · ${(info.size_bytes / 1024).toFixed(1)} KB`; }
+    catch (e) { $('db-info').textContent = `Database information unavailable: ${e}`; }
+  }
+  applyDesign(settings.design);
+  applySaveMode(settings.save_key_mode);
+  return { open };
 }
-
-function prettyBytes(bytes) {
-  const b = Number(bytes || 0);
-  if (b < 1024) return `${b} B`;
-  const kb = b / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  const gb = mb / 1024;
-  return `${gb.toFixed(2)} GB`;
-}
-

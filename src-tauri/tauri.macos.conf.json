@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "Settle",
+      "width": 1100,
+      "height": 760,
+      "minWidth": 620,
+      "minHeight": 420,
+      "resizable": true,
+      "fullscreen": false,
+      "visible": false,
+      "decorations": true
+    }]
+  }
+}

@@ -61,5 +61,12 @@ src-tauri/gen/
 ############################
 # My stupid shit
 ############################
-scripts/
+scripts/*
+!scripts/build-vendor.mjs
+!scripts/vendor-entry.js
 AGENTS.md
+design_concepts/
+node_modules/
+test-results/
+playwright-report/
+.qa/

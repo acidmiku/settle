@@ -13,8 +13,10 @@
       {
         "label": "main",
         "title": "Settle",
-        "width": 1000,
-        "height": 720,
+        "width": 1100,
+        "height": 760,
+        "minWidth": 620,
+        "minHeight": 420,
         "resizable": true,
         "fullscreen": false,
         "visible": false,
@@ -22,12 +24,14 @@
       }
     ],
     "security": {
-      "capabilities": ["default"]
+      "capabilities": ["default"],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "macOS": { "minimumSystemVersion": "12.3" },
     "windows": {
       "nsis": {
         "compression": "lzma"
