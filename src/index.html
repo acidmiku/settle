@@ -34,7 +34,13 @@
         <div id="buffer-tabs" class="buffer-tabs" role="tablist" aria-label="Open buffers"></div>
         <button id="btn-new" class="icon-button" aria-label="New buffer" title="New buffer (Ctrl/Cmd+N)">+</button>
         <span id="buffer-state" class="buffer-state" role="status">Draft · local</span>
-        <button id="btn-close-buffer" class="icon-button" aria-label="Close buffer" title="Close this buffer">×</button>
+      </div>
+      <div id="wysiwyg-toolbar" class="wysiwyg-toolbar" role="toolbar" aria-label="Markdown formatting" hidden>
+        <select id="rich-heading" aria-label="Text style"><option value="0">Paragraph</option><option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option><option value="4">Heading 4</option><option value="5">Heading 5</option><option value="6">Heading 6</option></select>
+        <button data-rich="bold" aria-label="Bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button><button data-rich="italic" aria-label="Italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button><button data-rich="strike" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button><button data-rich="code" aria-label="Inline code" title="Inline code">&lt;/&gt;</button>
+        <span class="toolbar-separator"></span><button data-rich="bullet" aria-label="Bullet list" title="Bullet list">• List</button><button data-rich="ordered" aria-label="Numbered list" title="Numbered list">1. List</button><button data-rich="task" aria-label="Task list" title="Task list">☑ Tasks</button><button data-rich="quote" aria-label="Blockquote" title="Blockquote">❞</button>
+        <span class="toolbar-separator"></span><button data-rich="link" aria-label="Insert link" title="Insert or edit link">Link</button><button data-rich="block" aria-label="Code block" title="Code block">Code</button><button data-rich="table" aria-label="Insert table" title="Insert table">Table</button><button data-rich="rule" aria-label="Horizontal rule" title="Horizontal rule">―</button>
+        <span class="toolbar-separator"></span><button data-rich="undo" aria-label="Undo" title="Undo">↶</button><button data-rich="redo" aria-label="Redo" title="Redo">↷</button>
       </div>
       <main class="workspace">
         <section class="editor" aria-label="Writing surface">
@@ -50,11 +56,14 @@
           </div>
           </div>
           <article id="markdown-preview" class="markdown-preview" aria-label="Markdown preview" tabindex="0" hidden></article>
+          <div id="rich-editor" class="rich-editor" hidden></div>
         </section>
         <aside id="history" class="history" aria-label="Saved notes" hidden>
           <div class="section-head"><h2>Saved notes</h2><button id="close-history" class="icon-button" aria-label="Close saved notes">×</button></div>
-          <label class="field"><span>Day</span><select id="history-date" aria-label="Filter notes by day"></select></label>
-          <div id="history-list" class="history-list"></div>
+          <div class="folders-head"><span class="eyebrow">LIBRARY</span><button id="new-folder" class="text-button" title="Create a folder">+ New folder</button></div>
+          <nav id="folder-list" class="folder-list" aria-label="Note folders"></nav>
+          <div class="notes-heading"><h3 id="notes-heading">All notes</h3><button id="folder-new-note" class="text-button">+ New note</button></div>
+          <div id="history-scroll" class="history-scroll"><div id="history-list" class="history-list"></div><button id="history-more" class="button" hidden>Load more notes</button></div>
         </aside>
       </main>
       <div id="find-bar" class="find-bar" hidden>
@@ -65,8 +74,10 @@
       <footer class="actionbar">
         <div class="footer-tools">
           <label class="syntax-control"><span>Syntax</span><select id="syntax-select" aria-label="Syntax language"></select></label>
+          <button id="btn-wysiwyg" class="footer-tool" aria-pressed="false" hidden>WYSIWYG</button>
           <button id="btn-line-numbers" class="footer-tool" aria-pressed="true" title="Toggle line numbers">Line numbers</button>
           <button id="btn-markdown-preview" class="footer-tool" aria-pressed="false" hidden>Preview Markdown</button>
+          <span id="note-save-status" class="note-save-status" data-saved="false" role="status">Not saved</span>
         </div>
         <button id="btn-save" class="action action-save"><kbd data-shortcut="S">Ctrl S</kbd><span id="save-label">Save</span></button>
         <button id="btn-copy" class="action"><kbd data-shortcut="Enter">Ctrl Enter</kbd><span>Copy + clear</span></button>
@@ -103,14 +114,28 @@
     <dialog id="confirm-dialog" aria-labelledby="confirm-title">
       <div class="dialog-head"><h1 id="confirm-title">Discard buffer?</h1></div><p id="confirm-message"></p><div class="dialog-foot"><button id="confirm-cancel" class="button">Keep it</button><button id="confirm-ok" class="button danger">Discard</button></div>
     </dialog>
+    <dialog id="close-tab-dialog" class="small-dialog" aria-labelledby="close-tab-title">
+      <div class="dialog-head"><h1 id="close-tab-title">Save changes?</h1></div>
+      <p id="close-tab-message" class="dialog-message"></p>
+      <div class="dialog-foot"><button id="close-tab-cancel" class="button">Cancel</button><button id="close-tab-discard" class="button">Discard</button><button id="close-tab-save" class="button primary">Save &amp; close</button></div>
+    </dialog>
+    <dialog id="edit-item-dialog" class="small-dialog" aria-labelledby="edit-item-title">
+      <form id="edit-item-form">
+        <div class="dialog-head"><h1 id="edit-item-title">Rename note</h1></div>
+        <div class="dialog-body"><label class="field"><span id="edit-item-label">Name</span><input id="edit-item-name" aria-labelledby="edit-item-label" autocomplete="off" maxlength="160"/><select id="edit-item-folder" aria-labelledby="edit-item-label" hidden></select></label><p id="edit-item-hint" class="muted"></p><p id="edit-item-error" role="alert"></p></div>
+        <div class="dialog-foot"><button id="edit-item-cancel" type="button" class="button" data-close-dialog>Cancel</button><button id="edit-item-submit" type="submit" class="button primary">Save</button></div>
+      </form>
+    </dialog>
     <div id="toasts" class="toasts" aria-live="polite"></div>
     <div id="tab-menu" class="tab-menu" role="menu" aria-label="Tab actions" hidden>
       <button role="menuitem" data-tab-action="new">New tab</button>
+      <button role="menuitem" data-tab-action="rename">Rename note…</button>
       <button role="menuitem" data-tab-action="close">Close tab</button>
       <div role="separator"></div>
       <button role="menuitem" data-tab-action="save-all">Close all with saving</button>
       <button role="menuitem" data-tab-action="discard-all">Close all without saving…</button>
     </div>
+    <div id="notes-menu" class="tab-menu" role="menu" aria-label="Library actions" hidden></div>
     <script type="module" src="./js/app.js"></script>
   </body>
 </html>

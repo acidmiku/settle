@@ -8,7 +8,7 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::models::{DateItem, DbInfo, Note, SearchResult};
+use crate::models::{DateItem, DbInfo, Folder, Note, SearchResult};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DbError {
@@ -90,6 +90,7 @@ impl Db {
         for (version, sql) in [
             (1, include_str!("../migrations/001_initial.sql")),
             (2, include_str!("../migrations/002_editor.sql")),
+            (3, include_str!("../migrations/003_note_library.sql")),
         ] {
             let applied: bool = conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
@@ -168,7 +169,7 @@ impl Db {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
             r#"
-      SELECT id, content, local_date, local_time, created_at, tags
+      SELECT id, content, local_date, local_time, created_at, tags, title, folder_id
       FROM notes
       WHERE local_date = ?1
       ORDER BY local_time ASC, created_at ASC
@@ -184,6 +185,8 @@ impl Db {
                 local_time: r.get(3)?,
                 created_at: r.get(4)?,
                 tags,
+                title: r.get(6)?,
+                folder_id: r.get(7)?,
             })
         })?;
         let mut out = Vec::new();
@@ -193,11 +196,17 @@ impl Db {
         Ok(out)
     }
 
-    pub fn create_note(&self, content: &str) -> DbResult<Note> {
+    pub fn create_note(
+        &self,
+        content: &str,
+        title: Option<&str>,
+        folder_id: Option<&str>,
+    ) -> DbResult<Note> {
         if content.trim().is_empty() {
             return Err(DbError::InvalidInput("note content is empty".into()));
         }
 
+        let title = normalize_title(title)?;
         let local = Local::now();
         let local_date = local.format("%Y-%m-%d").to_string();
         let local_time = local.format("%H:%M:%S").to_string();
@@ -210,20 +219,125 @@ impl Db {
         let conn = self.pool.get()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO notes(id, content, local_date, local_time, created_at, tags)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, content, local_date, local_time, created_at, tags_json],
+            "INSERT INTO notes(id, content, local_date, local_time, created_at, tags, title, folder_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, content, local_date, local_time, created_at, tags_json, title, folder_id],
         )?;
         tx.commit()?;
 
         Ok(Note {
             id,
+            title,
+            folder_id: folder_id.map(str::to_string),
             content: content.to_string(),
             local_date,
             local_time,
             created_at,
             tags,
         })
+    }
+
+    pub fn list_notes(
+        &self,
+        folder_id: Option<&str>,
+        unfiled: bool,
+        offset: i64,
+        limit: i64,
+    ) -> DbResult<Vec<Note>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, content, local_date, local_time, created_at, tags, title, folder_id FROM notes
+             WHERE (?1 IS NULL OR folder_id = ?1) AND (NOT ?2 OR folder_id IS NULL)
+             ORDER BY local_date DESC, local_time DESC, created_at DESC, id DESC LIMIT ?3 OFFSET ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![folder_id, unfiled, limit.clamp(1, 100), offset.max(0)],
+            |r| {
+                Ok(Note {
+                    id: r.get(0)?,
+                    content: r.get(1)?,
+                    local_date: r.get(2)?,
+                    local_time: r.get(3)?,
+                    created_at: r.get(4)?,
+                    tags: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+                    title: r.get(6)?,
+                    folder_id: r.get(7)?,
+                })
+            },
+        )?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn rename_note(&self, note_id: &str, title: Option<&str>) -> DbResult<()> {
+        let title = normalize_title(title)?;
+        let conn = self.pool.get()?;
+        require_changed(
+            conn.execute(
+                "UPDATE notes SET title = ?1 WHERE id = ?2",
+                params![title, note_id],
+            )?,
+            "note",
+        )
+    }
+
+    pub fn move_note(&self, note_id: &str, folder_id: Option<&str>) -> DbResult<()> {
+        let conn = self.pool.get()?;
+        require_changed(
+            conn.execute(
+                "UPDATE notes SET folder_id = ?1 WHERE id = ?2",
+                params![folder_id, note_id],
+            )?,
+            "note",
+        )
+    }
+
+    pub fn list_folders(&self) -> DbResult<Vec<Folder>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT f.id, f.name, COUNT(n.id) FROM folders f LEFT JOIN notes n ON n.folder_id = f.id GROUP BY f.id ORDER BY f.name COLLATE NOCASE, f.id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Folder {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                note_count: r.get(2)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn create_folder(&self, name: &str) -> DbResult<Folder> {
+        let name = validate_folder_name(name)?;
+        let id = Uuid::new_v4().to_string();
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO folders(id, name) VALUES (?1, ?2)",
+            params![id, name],
+        )?;
+        Ok(Folder {
+            id,
+            name,
+            note_count: 0,
+        })
+    }
+
+    pub fn rename_folder(&self, folder_id: &str, name: &str) -> DbResult<()> {
+        let name = validate_folder_name(name)?;
+        let conn = self.pool.get()?;
+        require_changed(
+            conn.execute(
+                "UPDATE folders SET name = ?1 WHERE id = ?2",
+                params![name, folder_id],
+            )?,
+            "folder",
+        )
+    }
+
+    pub fn delete_folder(&self, folder_id: &str) -> DbResult<()> {
+        let conn = self.pool.get()?;
+        // The foreign key moves notes to Unfiled atomically; deleting a folder never deletes notes.
+        require_changed(
+            conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])?,
+            "folder",
+        )
     }
 
     pub fn update_note(&self, note_id: &str, new_content: &str) -> DbResult<()> {
@@ -273,7 +387,7 @@ impl Db {
         }
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
-            "SELECT n.id, n.local_date, snippet(notes_fts, 0, '', '', '…', 24)
+            "SELECT n.id, n.local_date, snippet(notes_fts, 0, '', '', '…', 24), n.title
        FROM notes_fts JOIN notes n ON notes_fts.rowid = n.rowid
        WHERE notes_fts MATCH ?1 ORDER BY bm25(notes_fts), n.created_at DESC LIMIT ?2",
         )?;
@@ -282,6 +396,7 @@ impl Db {
                 id: r.get(0)?,
                 local_date: r.get(1)?,
                 snippet: r.get(2)?,
+                title: r.get(3)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
@@ -292,7 +407,7 @@ impl Db {
 
         let notes = {
             let mut stmt =
-        conn.prepare("SELECT id, content, local_date, local_time, created_at, tags FROM notes ORDER BY created_at, id")?;
+        conn.prepare("SELECT id, content, local_date, local_time, created_at, tags, title, folder_id FROM notes ORDER BY created_at, id")?;
             let rows = stmt.query_map([], |r| {
                 let tags_json: String = r.get(5)?;
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
@@ -302,7 +417,9 @@ impl Db {
                   "local_date": r.get::<_, String>(2)?,
                   "local_time": r.get::<_, String>(3)?,
                   "created_at": r.get::<_, String>(4)?,
-                  "tags": tags
+                  "tags": tags,
+                  "title": r.get::<_, Option<String>>(6)?,
+                  "folder_id": r.get::<_, Option<String>>(7)?
                 }))
             })?;
             let mut out = Vec::new();
@@ -407,6 +524,7 @@ impl Db {
           "workspace": workspace,
           "exported_at": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
           "notes": notes,
+          "folders": self.list_folders()?,
           "summaries": summaries,
           "categories": categories
         }))
@@ -424,4 +542,31 @@ impl Db {
         }
         tags
     }
+}
+
+fn require_changed(changed: usize, kind: &str) -> DbResult<()> {
+    if changed == 0 {
+        return Err(DbError::InvalidInput(format!("{kind} not found")));
+    }
+    Ok(())
+}
+
+fn normalize_title(title: Option<&str>) -> DbResult<Option<String>> {
+    let title = title.unwrap_or("").trim();
+    if title.chars().count() > 160 || title.chars().any(char::is_control) {
+        return Err(DbError::InvalidInput(
+            "note name must be a single line of up to 160 characters".into(),
+        ));
+    }
+    Ok((!title.is_empty()).then(|| title.to_string()))
+}
+
+fn validate_folder_name(name: &str) -> DbResult<String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+        return Err(DbError::InvalidInput(
+            "folder name must contain 1–80 characters on one line".into(),
+        ));
+    }
+    Ok(name.to_string())
 }

@@ -51,10 +51,26 @@ pub fn export_markdown_to_dir(db: &Db, export_root: &Path) -> DbResult<ExportRes
                     .and_then(|v| v.as_str())
                     .unwrap_or("00:00:00");
                 let content = n.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let title = n.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let folder_id = n.get("folder_id").and_then(|v| v.as_str());
+                let folder = export
+                    .get("folders")
+                    .and_then(|v| v.as_array())
+                    .and_then(|folders| {
+                        folders
+                            .iter()
+                            .find(|f| f.get("id").and_then(|v| v.as_str()) == folder_id)
+                    })
+                    .and_then(|f| f.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unfiled");
+                let heading = if title.is_empty() {
+                    time[0..5.min(time.len())].to_string()
+                } else {
+                    format!("{} · {}", &time[0..5.min(time.len())], title)
+                };
                 md.push_str(&format!(
-                    "## {}\n\n{}\n\n---\n\n",
-                    &time[0..5.min(time.len())],
-                    content
+                    "## {heading}\n\nFolder: {folder}\n\n{content}\n\n---\n\n"
                 ));
             }
             let path = daily_dir.join(format!("{}.md", sanitize_filename(&date)));
@@ -136,6 +152,7 @@ pub fn export_markdown_to_dir(db: &Db, export_root: &Path) -> DbResult<ExportRes
     let manifest = serde_json::json!({
       "exported_at": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
       "format": "markdown",
+      "folders": export.get("folders"),
       "files_written": files
     });
     fs::write(

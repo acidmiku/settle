@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     db::Db,
     export,
-    models::{DateItem, DbInfo, Note, SearchResult},
+    models::{DateItem, DbInfo, Folder, Note, SearchResult},
 };
 
 pub struct AppState {
@@ -50,9 +50,99 @@ pub async fn list_notes_for_date(
 }
 
 #[tauri::command]
-pub async fn create_note(state: State<'_, AppState>, content: String) -> Result<Note, String> {
+pub async fn create_note(
+    state: State<'_, AppState>,
+    content: String,
+    title: Option<String>,
+    folder_id: Option<String>,
+) -> Result<Note, String> {
     let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || db.create_note(&content))
+    tauri::async_runtime::spawn_blocking(move || {
+        db.create_note(&content, title.as_deref(), folder_id.as_deref())
+    })
+    .await
+    .map_err(err_to_string)?
+    .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn list_notes(
+    state: State<'_, AppState>,
+    folder_id: Option<String>,
+    unfiled: bool,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<Note>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.list_notes(folder_id.as_deref(), unfiled, offset, limit)
+    })
+    .await
+    .map_err(err_to_string)?
+    .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn rename_note(
+    state: State<'_, AppState>,
+    note_id: String,
+    title: Option<String>,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.rename_note(&note_id, title.as_deref()))
+        .await
+        .map_err(err_to_string)?
+        .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn move_note(
+    state: State<'_, AppState>,
+    note_id: String,
+    folder_id: Option<String>,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.move_note(&note_id, folder_id.as_deref()))
+        .await
+        .map_err(err_to_string)?
+        .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn list_folders(state: State<'_, AppState>) -> Result<Vec<Folder>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.list_folders())
+        .await
+        .map_err(err_to_string)?
+        .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn create_folder(state: State<'_, AppState>, name: String) -> Result<Folder, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.create_folder(&name))
+        .await
+        .map_err(err_to_string)?
+        .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn rename_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+    name: String,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.rename_folder(&folder_id, &name))
+        .await
+        .map_err(err_to_string)?
+        .map_err(err_to_string)
+}
+
+#[tauri::command]
+pub async fn delete_folder(state: State<'_, AppState>, folder_id: String) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.delete_folder(&folder_id))
         .await
         .map_err(err_to_string)?
         .map_err(err_to_string)

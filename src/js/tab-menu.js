@@ -11,7 +11,7 @@ export function createTabMenu(actions, isBusy, currentId) {
   function open(event, keyboard = false) {
     if (isBusy()) return;
     event.preventDefault();
-    const tab = event.target.closest('.buffer-tab');
+    const tab = event.target.closest('.buffer-tab-shell')?.querySelector('.buffer-tab');
     targetId = tab?.dataset.bufferId || currentId();
     returnFocus = document.activeElement;
     menu.hidden = false;

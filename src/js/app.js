@@ -1,5 +1,5 @@
 import { invoke, listen } from './api.js';
-import { $, isMod, initDialogs, confirmAction } from './utils.js';
+import { $, isMod, initDialogs, confirmAction, confirmClose, editItem, noteLabel } from './utils.js';
 import { toast } from './toast.js';
 import { createWorkspace, newBuffer } from './workspace.js';
 import { createEditor, createFind } from './editor.js';
@@ -41,27 +41,45 @@ async function boot() {
     }
   });
   $('settings-dialog').addEventListener('cancel', event => { if (installingUpdate) event.preventDefault(); });
-  const notes = createNotes(openNote, id => {
+  const notes = createNotes({onOpen:openNote, onNew:addBuffer, onDelete:id => {
     for (const buffer of state.buffers) if (buffer.noteId === id) { buffer.noteId = null; buffer.original = ''; }
     persist(); renderTabs();
-  });
+  }, onChange:(id, changes) => {
+    for (const buffer of state.buffers) if (buffer.noteId === id) Object.assign(buffer, changes);
+    persist(); renderTabs();
+  }, onFolderDelete:id => {
+    for (const buffer of state.buffers) if (buffer.folderId === id) buffer.folderId = null;
+    persist();
+  }});
   const search = createSearch(openNote);
-  createTabMenu({new:addBuffer, close:closeBuffer, 'save-all':() => closeAll(true), 'discard-all':() => closeAll(false)}, () => busy, () => current().id);
+  createTabMenu({new:() => addBuffer(), rename:renameBuffer, close:closeBuffer, 'save-all':() => closeAll(true), 'discard-all':() => closeAll(false)}, () => busy, () => current().id);
 
   function renderTabs() {
     const buffer = current();
-    $('buffer-tabs').replaceChildren();
+    const existing = new Map([...$('buffer-tabs').children].map(el => [el.dataset.bufferId, el]));
     state.buffers.forEach((b,i) => {
-      const button = document.createElement('button');
-      button.className = 'buffer-tab';
+      const shell = existing.get(b.id) || document.createElement('div');
+      if (!existing.has(b.id)) {
+        shell.className = 'buffer-tab-shell'; shell.dataset.bufferId = b.id; shell.setAttribute('role','presentation');
+        shell.innerHTML = '<button class="buffer-tab"><span class="tab-label"></span></button><button class="tab-close" title="Close tab" aria-label="Close tab">×</button>';
+      }
+      existing.delete(b.id);
+      const button = shell.querySelector('.buffer-tab'), close = shell.querySelector('.tab-close');
       button.dataset.bufferId = b.id;
       button.setAttribute('role','tab');
       button.setAttribute('aria-selected', String(b.id === buffer.id));
       button.tabIndex = b.id === buffer.id ? 0 : -1;
-      const title = b.text.split('\n')[0].trim();
-      button.textContent = title || 'New note';
-      button.title = title || button.textContent;
-      button.onclick = () => { if (closingAll) return; state.activeId = b.id; showBuffer(); persist(); };
+      const title = b.title || b.text.split('\n')[0].trim() || 'New note';
+      button.querySelector('.tab-label').textContent = title;
+      button.title = title;
+      close.setAttribute('aria-label', `Close ${title}`);
+      close.onclick = () => closeBuffer(b.id);
+      button.ondblclick = () => renameBuffer(b.id);
+      button.onclick = () => {
+        if (closingAll) return;
+        if (state.activeId === b.id) { editor.focus(); return; }
+        state.activeId = b.id; showBuffer(); persist();
+      };
       button.onkeydown = e => {
         if (closingAll || !['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
         e.preventDefault();
@@ -70,27 +88,34 @@ async function boot() {
         state.activeId = buffers[index].id; showBuffer(); persist();
         $('buffer-tabs').querySelector('[aria-selected="true"]').focus();
       };
-      $('buffer-tabs').append(button);
+      $('buffer-tabs').append(shell);
     });
+    existing.forEach(el => el.remove());
     $('buffer-state').textContent = buffer.noteId ? 'Editing saved note' : 'Draft · local';
     $('save-label').textContent = buffer.noteId ? 'Update' : 'Save';
+    const saved = Boolean(buffer.noteId) && buffer.text === buffer.original;
+    $('note-save-status').dataset.saved = String(saved);
+    $('note-save-status').textContent = saved ? 'Saved' : 'Not saved';
+    $('note-save-status').title = saved ? 'This note is saved to your library.' : 'This tab has not been saved to your library. Draft backup is separate.';
+    notes.setActive(buffer.noteId);
   }
   function showBuffer() {
     editor.setBuffer(current());
     renderTabs(); find.refresh(); editor.focus();
   }
-  function addBuffer() {
+  function addBuffer(folderId = null) {
     if (closingAll) return;
-    const buffer = newBuffer();
+    const buffer = newBuffer(folderId);
     state.buffers.push(buffer); state.activeId = buffer.id; showBuffer(); persist();
   }
   function openNote(note) {
     if (closingAll) return;
     let buffer = state.buffers.find(b => b.noteId === note.id);
     if (!buffer) {
-      buffer = { ...newBuffer(), text: note.content, original: note.content, noteId: note.id };
+      buffer = { ...newBuffer(note.folder_id), text: note.content, title:note.title || null, original: note.content, noteId: note.id };
       state.buffers.push(buffer);
     }
+    buffer.title = note.title || null; buffer.folderId = note.folder_id || null;
     state.activeId = buffer.id;
     showBuffer(); persist();
   }
@@ -98,12 +123,35 @@ async function boot() {
     if (busy) return;
     const buffer = state.buffers.find(b => b.id === id);
     if (!buffer) return;
-    if (buffer.noteId ? buffer.text !== buffer.original : Boolean(buffer.text)) {
-      if (!await confirmAction('Discard buffer?', 'This buffer has text that will be removed. Saved notes are kept.')) return;
-    }
+    const choice = (buffer.noteId ? buffer.text !== buffer.original : Boolean(buffer.text || buffer.title)) ? await confirmClose(noteLabel(buffer)) : 'discard';
+    if (!['save','discard'].includes(choice)) return;
     if (busy) return;
+    if (choice === 'save') {
+      busy = true; closingAll = true; $('app').inert = true;
+      try {
+        if (!buffer.text.trim()) throw new Error('Write something in this note before saving.');
+        await writeBuffer(buffer);
+      } catch (error) {
+        toast(`Could not save. The tab is still open. ${error}`, {kind:'error'}); return;
+      } finally { busy = false; closingAll = false; $('app').inert = false; renderTabs(); }
+    }
+    const index = state.buffers.indexOf(buffer);
     state.buffers = state.buffers.filter(b => b.id !== buffer.id);
+    if (state.activeId === buffer.id) state.activeId = state.buffers[Math.min(index, state.buffers.length - 1)]?.id;
     showBuffer(); persist();
+    if (!$('history').hidden) notes.refresh();
+  }
+  function renameBuffer(id = current().id) {
+    if (busy) return;
+    const buffer = state.buffers.find(b => b.id === id);
+    if (!buffer) return;
+    editItem({heading:'Rename note', value:buffer.title || '', placeholder:noteLabel(buffer),
+      hint:'Leave blank to use the first line. The note text stays unchanged.',
+      onSave:async title => {
+        if (buffer.noteId) await invoke('rename_note', {noteId:buffer.noteId, title:title || null});
+        buffer.title = title || null; persist(); renderTabs();
+        if (!$('history').hidden) await notes.refresh();
+      }});
   }
   async function writeBuffer(buffer) {
     const text = buffer.text;
@@ -114,7 +162,7 @@ async function boot() {
     if (buffer.noteId) {
       if (text !== buffer.original) await invoke('update_note', {noteId:buffer.noteId,content:text});
     } else {
-      const saved = await invoke('create_note', {content:text});
+      const saved = await invoke('create_note', {content:text, title:buffer.title, folderId:buffer.folderId});
       buffer.noteId = saved.id;
     }
     buffer.original = text;
@@ -129,6 +177,7 @@ async function boot() {
     document.querySelector('.workspace').inert = true;
     document.querySelector('.buffer-bar').inert = true;
     document.querySelector('.actionbar').inert = true;
+    $('wysiwyg-toolbar').inert = true;
     editor.input.readOnly = true; editor.title.readOnly = true;
     try {
       if (withSaving) for (const buffer of state.buffers) await writeBuffer(buffer);
@@ -141,22 +190,19 @@ async function boot() {
     } finally {
       busy = false; closingAll = false;
       for (const selector of ['.workspace','.buffer-bar','.actionbar']) document.querySelector(selector).inert = false;
+      $('wysiwyg-toolbar').inert = false;
       editor.input.readOnly = false; editor.title.readOnly = false; editor.focus();
       if (!$('history').hidden) notes.refresh();
     }
   }
   async function save() {
     if (busy) return;
-    const buffer = current(), text = buffer.text, updating = Boolean(buffer.noteId);
-    if (!text.trim()) { toast('Write something first.'); editor.focus(); return; }
+    const buffer = current(), updating = Boolean(buffer.noteId);
+    if (!buffer.text.trim()) { toast('Write something first.'); editor.focus(); return; }
     busy = true; $('btn-save').disabled = true;
     try {
       await writeBuffer(buffer);
-      if (!updating && buffer.text === text) { buffer.text = ''; buffer.noteId = null; buffer.original = ''; }
-      persist();
       if (current().id === buffer.id) {
-        if (editor.getText() !== buffer.text) editor.setText(buffer.text);
-        if (!buffer.text) editor.revealSource();
         renderTabs(); find.refresh();
       }
       toast(updating ? 'Note updated' : 'Note saved');
@@ -172,7 +218,7 @@ async function boot() {
     busy = true; $('btn-copy').disabled = true;
     try {
       await invoke('copy_to_clipboard', { text });
-      if (buffer.text === text) { buffer.text = ''; buffer.noteId = null; buffer.original = ''; }
+      if (buffer.text === text) { buffer.text = ''; buffer.noteId = null; buffer.original = ''; buffer.title = null; }
       persist();
       if (current().id === buffer.id) { editor.setText(buffer.text); if (!buffer.text) editor.revealSource(); renderTabs(); find.refresh(); }
       toast('Copied to clipboard');
@@ -184,14 +230,20 @@ async function boot() {
     await workspace.flush();
     try { await invoke('hide_main_window'); } catch (e) { toast(`Could not hide: ${e}`, { kind:'error' }); }
   }
-  $('btn-new').onclick = addBuffer;
-  $('btn-close-buffer').onclick = () => closeBuffer();
+  $('btn-new').onclick = () => addBuffer();
   $('btn-search').onclick = search.open;
   $('btn-save').onclick = save;
   $('btn-copy').onclick = copyClear;
   $('btn-hide').onclick = hide;
   document.querySelectorAll('[data-action="settings"]').forEach(button => button.onclick = settings.open);
   document.querySelectorAll('[data-action="history"]').forEach(button => button.onclick = notes.toggle);
+  $('rich-editor').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229 || e.key !== 'Enter') return;
+    if (isMod(e)) { e.preventDefault(); e.stopPropagation(); copyClear(); }
+    else if (!e.altKey && !e.ctrlKey && !e.metaKey && (document.documentElement.dataset.saveMode === 'enter' ? !e.shiftKey : e.shiftKey)) {
+      e.preventDefault(); e.stopPropagation(); save();
+    }
+  }, true);
   window.addEventListener('keydown', e => {
     if (installingUpdate) { e.preventDefault(); return; }
     if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;

@@ -1,57 +1,204 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
+import { installTestBridge } from './bridge.js';
 
 test.beforeEach(async ({page}, info) => {
-  await page.addInitScript(({platform}) => {
-    const data = JSON.parse(localStorage.getItem('test.db') || 'null') || { settings:{design:'scratch'}, notes:[] };
-    window.testState = { data, calls:[], clipboard:'', fail:null, delay:0 };
-    const persist = () => localStorage.setItem('test.db', JSON.stringify(data));
-    window.__TAURI__ = {
-      core: { async invoke(command,args = {}) {
-        window.testState.calls.push({command,args});
-        if (window.testState.delay && ['create_note','copy_to_clipboard'].includes(command)) await new Promise(r => setTimeout(r,window.testState.delay));
-        if (window.testState.fail === command) throw new Error('Simulated failure');
-        if (command === 'create_note' && args.content === window.testState.failContent) throw new Error('Simulated tab save failure');
-        switch(command) {
-          case 'get_settings': return data.settings;
-          case 'get_runtime_info': return {platform,version:'0.2.1'};
-          case 'get_start_with_os': return data.startWithOs === true;
-          case 'set_start_with_os': data.startWithOs = args.enabled; persist(); return data.startWithOs;
-          case 'check_for_update': return window.testState.update || null;
-          case 'install_update': {
-            window.testState.installedWorkspace = data.settings.workspace;
-            window.testState['settle:update-progress']?.({payload:{phase:'downloading',downloaded:50,total:100}});
-            await new Promise(r => setTimeout(r,200));
-            window.testState['settle:update-progress']?.({payload:{phase:'installing'}});
-            return;
-          }
-          case 'get_db_info': return { path:'/local/settle.sqlite3', size_bytes:12345 };
-          case 'set_setting': data.settings[args.key] = args.value; persist(); return;
-          case 'create_note': {
-            const note = {id:crypto.randomUUID(),content:args.content,local_date:'2026-10-15',local_time:'14:22:00',tags:[]};
-            data.notes.push(note); persist(); return note;
-          }
-          case 'update_note': data.notes.find(n => n.id === args.noteId).content = args.content; persist(); return;
-          case 'delete_note': data.notes = data.notes.filter(n => n.id !== args.noteId); persist(); return;
-          case 'list_dates': return data.notes.length ? [{local_date:'2026-10-15',note_count:data.notes.length}] : [];
-          case 'list_notes_for_date': return data.notes.filter(n => n.local_date === args.localDate);
-          case 'search': return data.notes.filter(n => n.content.toLowerCase().includes(args.query.toLowerCase())).map(n => ({...n,snippet:n.content}));
-          case 'copy_to_clipboard': window.testState.clipboard = args.text; return;
-          case 'open_preview_link': window.testState.openedUrl = args.url; return;
-          case 'hide_main_window': window.testState.hidden = true; return;
-          case 'export_json': case 'export_markdown': return {files_written:1, export_dir:'/local/exports/test'};
-          default: throw new Error(`Unexpected command ${command}`);
-        }
-      } },
-      event: { async listen(name,handler) { window.testState[name] = handler; return () => { delete window.testState[name]; }; } },
-    };
-  }, { platform:info.project.name.startsWith('macos') ? 'macos' : 'windows' });
+  await page.addInitScript(installTestBridge, { platform:info.project.name.startsWith('macos') ? 'macos' : 'windows' });
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('data-ready','true');
 });
 
 const mod = info => info.project.name.startsWith('macos') ? 'Meta' : 'Control';
 const sample = 'Desk rebuild\n\nTry the smaller enclosure.\nMove the power connector to the back.\nLeave enough clearance for the cable.\n\nMeasure the shelf before printing.';
+
+test('library groups every date and pages without duplicate notes', async ({page}) => {
+  await page.evaluate(() => {
+    window.testState.data.notes = Array.from({length:125}, (_,i) => ({id:`note-${String(i).padStart(3,'0')}`,content:`Note ${i}`,local_date:i < 60 ? '2026-10-14' : '2026-10-15',local_time:'10:00:00'}));
+  });
+  await page.locator('#btn-history').click();
+  await expect(page.locator('#history-date')).toHaveCount(0);
+  await expect(page.locator('.history-item')).toHaveCount(100);
+  await expect(page.locator('.note-date-label')).toHaveCount(2);
+  await expect(page.locator('.history-open').first()).toHaveText('Note 124');
+  await page.locator('#history-more').click();
+  await expect(page.locator('.history-item')).toHaveCount(125);
+  await expect(page.locator('.note-date-label')).toHaveCount(2);
+  await expect(page.locator('#history-more')).toBeHidden();
+  expect(await page.locator('.history-item').evaluateAll(items => new Set(items.map(el => el.dataset.noteId)).size)).toBe(125);
+});
+
+test('rename from list and tabs preserves text and unsaved edits and is searchable', async ({page},info) => {
+  const input = page.locator('#note-input');
+  await input.fill('Original content\nKeep every byte.'); await page.locator('#btn-save').click();
+  await page.locator('#btn-history').click();
+  await page.locator('.history-open strong').dblclick();
+  await page.locator('#edit-item-name').fill('Project Aurora'); await page.locator('#edit-item-submit').click();
+  await expect(page.locator('.history-open strong')).toHaveText('Project Aurora');
+  await expect(input).toHaveValue('Original content\nKeep every byte.');
+  await input.fill('Unsaved content edit');
+  await page.locator('.buffer-tab[aria-selected="true"] .tab-label').dblclick();
+  await page.locator('#edit-item-name').fill('Final name');
+  await page.evaluate(() => { window.testState.fail = 'rename_note'; });
+  await page.locator('#edit-item-submit').click();
+  await expect(page.locator('#edit-item-error')).toContainText('Simulated failure');
+  await expect(page.locator('.buffer-tab[aria-selected="true"]')).toHaveText('Project Aurora');
+  await page.evaluate(() => { window.testState.fail = null; });
+  await page.locator('#edit-item-submit').click();
+  await expect(page.locator('.buffer-tab[aria-selected="true"]')).toHaveText('Final name');
+  await expect(input).toHaveValue('Unsaved content edit');
+  await page.reload();
+  await expect(page.locator('.buffer-tab[aria-selected="true"]')).toHaveText('Final name');
+  await expect(input).toHaveValue('Unsaved content edit');
+  await page.keyboard.press(`${mod(info)}+k`); await page.locator('#search-input').fill('Final name');
+  await expect(page.locator('.search-result strong')).toHaveText('Final name');
+  expect(await page.evaluate(() => window.testState.data.notes[0].content)).toBe('Original content\nKeep every byte.');
+});
+
+test('folders create notes in place, move notes and keep them when deleting a folder', async ({page}) => {
+  await page.locator('#btn-history').click();
+  await page.locator('#new-folder').click(); await page.locator('#edit-item-name').fill('Work'); await page.locator('#edit-item-submit').click();
+  await expect(page.locator('#notes-heading')).toHaveText('Work');
+  await page.locator('#folder-new-note').click();
+  await page.locator('#note-input').fill('Project note'); await page.locator('#btn-save').click();
+  await expect(page.locator('.history-open')).toHaveCount(1);
+  await page.locator('.history-open').click();
+  await page.locator('#new-folder').click(); await page.locator('#edit-item-name').fill('Personal'); await page.locator('#edit-item-submit').click();
+  await page.getByRole('button', {name:'Work',exact:false}).filter({has:page.locator('svg')}).click();
+  await page.locator('.note-actions').click(); await page.getByRole('menuitem',{name:'Move to folder…'}).click();
+  const personal = await page.evaluate(() => window.testState.data.folders.find(f => f.name === 'Personal').id);
+  await page.locator('#edit-item-folder').selectOption(personal); await page.locator('#edit-item-submit').click();
+  await expect(page.locator('.history-open')).toHaveCount(0);
+  await page.reload(); await page.locator('#btn-history').click();
+  await page.locator(`.folder-button[data-folder-id="${personal}"]`).click();
+  await expect(page.locator('.history-open strong')).toHaveText('Project note');
+  await expect(page.locator('#note-input')).toHaveValue('Project note');
+  await page.getByRole('button',{name:'Actions for Personal',exact:true}).click();
+  await page.getByRole('menuitem',{name:'Delete folder…'}).click(); await page.locator('#confirm-ok').click();
+  await expect(page.locator('#notes-heading')).toHaveText('Unfiled');
+  await expect(page.locator('.history-open')).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.testState.data.notes[0].folder_id)).toBe(null);
+  await expect(page.locator('#note-input')).toHaveValue('Project note');
+  await page.locator('#new-folder').click(); await page.locator('#edit-item-name').fill('work'); await page.locator('#edit-item-submit').click();
+  await expect(page.locator('#edit-item-error')).toContainText('already exists');
+});
+
+test('individual tab close offers save, discard and cancel and retains text on failed save', async ({page}) => {
+  await page.locator('#note-input').fill('Save this background draft');
+  await page.locator('#btn-new').click(); await page.locator('#note-input').fill('Keep this active');
+  await page.locator('.tab-close').first().click(); await page.locator('#close-tab-cancel').click();
+  await expect(page.locator('.buffer-tab')).toHaveCount(2);
+  await page.locator('.tab-close').first().click();
+  await page.evaluate(() => { window.testState.fail = 'create_note'; });
+  await page.locator('#close-tab-save').click();
+  await expect(page.locator('.toasts')).toContainText('The tab is still open');
+  await expect(page.locator('.buffer-tab')).toHaveCount(2);
+  await page.evaluate(() => { window.testState.fail = null; });
+  await page.locator('.tab-close').first().click(); await page.locator('#close-tab-save').click();
+  await expect(page.locator('.buffer-tab')).toHaveCount(1);
+  await expect(page.locator('#note-input')).toHaveValue('Keep this active');
+  expect(await page.evaluate(() => window.testState.data.notes.map(n => n.content))).toEqual(['Save this background draft']);
+  await page.locator('.tab-close').click(); await page.locator('#close-tab-discard').click();
+  await expect(page.locator('#note-input')).toHaveValue('');
+  await expect(page.locator('.buffer-tab')).toHaveCount(1);
+});
+
+test('saved indicator tracks note content, not background draft backup', async ({page},info) => {
+  const status = page.locator('#note-save-status'), input = page.locator('#note-input');
+  await expect(status).toHaveAttribute('data-saved','false');
+  await input.fill('Saved content'); await page.keyboard.press(`${mod(info)}+s`);
+  await page.locator('#btn-history').click(); await page.locator('.history-open').click();
+  await expect(status).toHaveAttribute('data-saved','true');
+  await input.fill('Changed content');
+  await expect.poll(() => page.evaluate(() => JSON.parse(window.testState.data.settings.workspace || '{"buffers":[]}').buffers.some(b => b.text === 'Changed content'))).toBe(true);
+  await expect(status).toHaveAttribute('data-saved','false');
+  await page.evaluate(() => { window.testState.fail = 'update_note'; });
+  await page.keyboard.press(`${mod(info)}+s`);
+  await expect(page.locator('.toasts')).toContainText('Save failed');
+  await expect(status).toHaveAttribute('data-saved','false');
+  await page.evaluate(() => { window.testState.fail = null; });
+  await page.keyboard.press(`${mod(info)}+s`); await expect(status).toHaveAttribute('data-saved','true');
+});
+
+test('WYSIWYG edits rendered Markdown, preserves source on toggle and restores undo', async ({page},info) => {
+  const input = page.locator('#note-input'), toggle = page.locator('#btn-wysiwyg');
+  const markdown = '# Heading\n\nA plain paragraph.\n\n- [x] Done\n- [ ] Next\n\n| Name | State |\n| --- | --- |\n| One | Ready |\n\n```js\nconst x = 1;\n```\n\n![Diagram](https://example.com/private.png)\n';
+  const remote = []; page.on('request', req => { if (req.url().includes('example.com')) remote.push(req.url()); });
+  await expect(toggle).toBeHidden();
+  await input.fill(markdown); await page.locator('#syntax-select').selectOption('markdown'); await toggle.click();
+  await expect(page.locator('#rich-editor h1')).toHaveText('Heading');
+  await expect(page.locator('#rich-editor table')).toBeVisible();
+  await expect(page.locator('#rich-editor input[type="checkbox"]')).toHaveCount(2);
+  const task = page.locator('#rich-editor li[data-type="taskItem"]').first();
+  const checkboxBounds = await task.locator('input').boundingBox(), taskBounds = await task.locator('p').boundingBox();
+  expect(Math.abs(checkboxBounds.y - taskBounds.y)).toBeLessThan(15);
+  await expect(page.locator('#rich-editor .rich-image')).toHaveText('Diagram');
+  await expect(page.locator('#wysiwyg-toolbar')).toBeVisible();
+  const tabs = await page.locator('.buffer-bar').boundingBox(), toolbar = await page.locator('#wysiwyg-toolbar').boundingBox();
+  expect(Math.abs(toolbar.y - tabs.y - tabs.height)).toBeLessThan(2);
+  await toggle.click(); await expect(input).toHaveValue(markdown);
+  await toggle.click();
+  await page.locator('#rich-editor p').filter({hasText:'A plain paragraph.'}).click({clickCount:3});
+  await page.getByRole('button',{name:'Bold',exact:true}).click();
+  await expect(page.locator('#rich-editor strong')).toHaveText('A plain paragraph.');
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(page.locator('#rich-editor strong')).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('settle.workspace.v3')).buffers[0].text)).toBe(markdown);
+  await page.getByRole('button',{name:'Redo',exact:true}).click();
+  await toggle.click();
+  const changed = await input.inputValue();
+  expect(changed).toContain('**A plain paragraph.**');
+  expect(changed).toContain('https://example.com/private.png');
+  expect(changed).toContain('const x = 1;'); expect(changed).toContain('- [x] Done');
+  expect(remote).toEqual([]);
+  await toggle.click(); await page.reload();
+  await expect(page.locator('#rich-editor strong')).toHaveText('A plain paragraph.');
+  await page.keyboard.press(`${mod(info)}+s`);
+  await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(1);
+  expect(await page.evaluate(() => window.testState.data.notes[0].content)).toContain('**A plain paragraph.**');
+  await expect(page.locator('#rich-editor strong')).toHaveText('A plain paragraph.');
+  await expect(page.locator('#btn-wysiwyg')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#note-save-status')).toHaveAttribute('data-saved','true');
+  await page.keyboard.press(`${mod(info)}+s`);
+  await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(1);
+});
+
+test('browser preview shows the library beside rich text and works at compact window sizes', async ({page}) => {
+  await page.goto('/preview');
+  await expect(page.locator('.history-item')).toHaveCount(6);
+  await expect(page.locator('#rich-editor h1')).toHaveText('A calmer workspace');
+  await mkdir('.qa/screenshots', {recursive:true});
+  await page.screenshot({path:'.qa/screenshots/library-preview.png'});
+  await page.setViewportSize({width:620,height:420});
+  await expect(page.locator('#note-save-status')).toBeInViewport();
+  await expect(page.locator('#new-folder')).toBeInViewport();
+  await expect(page.locator('#close-history')).toBeInViewport();
+  await page.locator('#close-history').click();
+  await expect(page.getByRole('textbox',{name:'Rich text note editor'})).toBeVisible();
+  expect(await page.locator('body').evaluate(el => el.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('rich text typing, view switches and themes keep content and never execute raw HTML', async ({page},info) => {
+  const input = page.locator('#note-input');
+  await page.locator('#syntax-select').selectOption('markdown'); await page.locator('#btn-wysiwyg').click();
+  const rich = page.getByRole('textbox',{name:'Rich text note editor'});
+  await rich.fill('Write visually');
+  await page.locator('#rich-heading').selectOption('2');
+  await expect(page.locator('#rich-editor h2')).toHaveText('Write visually');
+  for (const design of ['kiln','blackbox','optic','phosphor','sidecar','cobalt','scratch','redline','frost','tape']) {
+    await page.keyboard.press(`${mod(info)}+,`); await page.locator(`.design-option[data-value="${design}"]`).click(); await page.keyboard.press('Escape');
+    await expect(page.locator('#rich-editor h2')).toHaveText('Write visually');
+  }
+  await page.locator('#btn-markdown-preview').click(); await expect(page.locator('#markdown-preview h2')).toHaveText('Write visually');
+  await expect(page.locator('#wysiwyg-toolbar')).toBeHidden();
+  await page.locator('#btn-wysiwyg').click(); await expect(rich).toBeVisible();
+  await page.locator('#syntax-select').selectOption('plaintext');
+  await expect(input).toHaveValue('## Write visually'); await expect(page.locator('#wysiwyg-toolbar')).toBeHidden();
+  await input.fill('# Safe\n\n<script>window.injected = true</script>');
+  await page.locator('#syntax-select').selectOption('markdown'); await page.locator('#btn-wysiwyg').click();
+  await expect(page.locator('.toasts')).toContainText('raw HTML');
+  await expect(input).toHaveValue('# Safe\n\n<script>window.injected = true</script>');
+  expect(await page.evaluate(() => window.injected)).toBeUndefined();
+});
 
 test('startup toggle reflects the OS, survives reload and recovers from errors', async ({page},info) => {
   await page.keyboard.press(`${mod(info)}+,`);
@@ -81,16 +228,16 @@ test('startup toggle reflects the OS, survives reload and recovers from errors',
 
 test('update checks are manual and hide stale offers after failed or current checks', async ({page},info) => {
   await page.keyboard.press(`${mod(info)}+,`);
-  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.1');
+  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.2');
   const check = page.locator('#btn-check-update'), install = page.locator('#btn-install-update');
   expect(await page.evaluate(() => window.testState.calls.some(c => c.command === 'check_for_update'))).toBe(false);
   await expect(install).toBeHidden();
   await check.click();
   await expect(page.locator('#update-status')).toContainText('up to date');
-  await page.evaluate(() => { window.testState.update = {version:'0.2.2',notes:'<img src=x onerror=alert(1)> New features'}; });
+  await page.evaluate(() => { window.testState.update = {version:'0.2.3',notes:'<img src=x onerror=alert(1)> New features'}; });
   await check.click();
   await expect(install).toBeVisible();
-  await expect(page.locator('#update-status')).toContainText('0.2.2');
+  await expect(page.locator('#update-status')).toContainText('0.2.3');
   await expect(page.locator('#update-notes img')).toHaveCount(0);
   await page.evaluate(() => { window.testState.fail = 'check_for_update'; });
   await check.click();
@@ -106,7 +253,7 @@ test('update installation requires a successful draft backup, retries and locks 
   const editor = page.locator('#note-input');
   await editor.fill('Unsaved draft before update');
   await page.keyboard.press(`${mod(info)}+,`);
-  await page.evaluate(() => { window.testState.update = {version:'0.2.2',notes:'New features'}; });
+  await page.evaluate(() => { window.testState.update = {version:'0.2.3',notes:'New features'}; });
   await page.locator('#btn-check-update').click();
   await page.evaluate(() => { window.testState.fail = 'set_setting'; });
   await page.locator('#btn-install-update').click();
@@ -162,7 +309,8 @@ test('editor owns the window; all ten designs preserve content and persist', asy
 test('save, reopen, edit and delete a note with a recoverable draft', async ({page},info) => {
   await page.locator('#note-input').fill('First thought #work');
   await page.keyboard.press('Shift+Enter');
-  await expect(page.locator('#note-input')).toHaveValue('');
+  await expect(page.locator('#note-save-status')).toHaveAttribute('data-saved','true');
+  await expect(page.locator('#note-input')).toHaveValue('First thought #work');
   await page.keyboard.press(`${mod(info)}+Shift+h`);
   await page.locator('.history-open').click();
   await expect(page.locator('#note-input')).toHaveValue('First thought #work');
@@ -170,7 +318,8 @@ test('save, reopen, edit and delete a note with a recoverable draft', async ({pa
   await page.keyboard.press('Shift+Enter');
   await expect.poll(() => page.evaluate(() => window.testState.data.notes[0].content)).toBe('A better thought');
   await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(1);
-  await page.locator('.delete-note').click();
+  await page.locator('.note-actions').click();
+  await page.getByRole('menuitem', {name:'Delete note…', exact:true}).click();
   await page.locator('#confirm-ok').click();
   await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(0);
   await expect(page.locator('#note-input')).toHaveValue('A better thought');
@@ -187,7 +336,7 @@ test('draft tabs survive an immediate reload and share one save behavior', async
   await expect(page.locator('#note-input')).toHaveValue('Unfinished note');
   await page.keyboard.press('Shift+Enter');
   await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(1);
-  await expect(page.locator('#note-input')).toHaveValue('');
+  await expect(page.locator('#note-input')).toHaveValue('Unfinished note');
   await page.locator('.buffer-tab').last().click();
   await expect(page.locator('#note-input')).toHaveValue('Second draft');
 });
@@ -219,7 +368,7 @@ for (const source of ['cache','database']) {
     await page.locator('.buffer-tab').nth(1).click();
     await expect(editor).toHaveValue('First scratch  \n');
     await page.locator('#btn-save').click();
-    await expect(editor).toHaveValue('');
+    await expect(editor).toHaveValue('First scratch  \n');
     await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(2);
     await page.locator('.buffer-tab').first().click();
     await expect(editor).toHaveValue('Edited note  \n');
@@ -270,7 +419,8 @@ test('find, search, IME and modal Escape stay scoped', async ({page},info) => {
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => window.testState.hidden)).toBeUndefined();
   await page.keyboard.press('Shift+Enter');
-  await expect(editor).toHaveValue('');
+  await expect(page.locator('#note-save-status')).toHaveAttribute('data-saved','true');
+  await expect(editor).toHaveValue('alpha beta alpha <script>');
   await page.keyboard.press(`${mod(info)}+k`);
   await page.locator('#search-input').fill('alpha');
   await expect(page.locator('.search-result')).toHaveCount(1);
@@ -293,7 +443,8 @@ test('enter setting, hotkey failure, and compact layouts', async ({page},info) =
   await page.keyboard.press('Escape');
   await page.locator('#note-input').fill('Enter saves');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#note-input')).toHaveValue('');
+  await expect(page.locator('#note-save-status')).toHaveAttribute('data-saved','true');
+  await expect(page.locator('#note-input')).toHaveValue('Enter saves');
   await page.setViewportSize({width:620,height:420});
   for (const design of ['kiln','blackbox','scratch','optic','phosphor','sidecar','redline','cobalt','frost','tape']) {
     await page.evaluate(design => { document.documentElement.dataset.design = design; window.dispatchEvent(new Event('settle:design-changed')); }, design);
@@ -488,7 +639,9 @@ test('Markdown preview renders safely, preserves source and works with save and 
   await previewButton.click();
   await page.keyboard.press(`${mod(info)}+s`);
   await expect.poll(() => page.evaluate(() => window.testState.data.notes[0]?.content)).toBe(markdown);
-  await expect(editor).toHaveValue('');
+  await expect(page.locator('#markdown-preview')).toBeVisible();
+  await expect(editor).toHaveValue(markdown);
+  await previewButton.click();
   await expect(editor).toBeVisible();
   await page.locator('#syntax-select').selectOption('markdown');
   await editor.fill('Plain words');
@@ -501,16 +654,31 @@ test('Markdown preview renders safely, preserves source and works with save and 
   await expect(editor).toHaveValue('Plain words');
 });
 
-test('Ctrl/Cmd+S creates and updates notes without duplicates', async ({page},info) => {
-  await page.locator('#note-input').fill('Hotkey note');
+test('Ctrl/Cmd+S keeps the same tab, text and caret and updates without duplicates', async ({page},info) => {
+  const editor = page.locator('#note-input');
+  const tabId = await page.locator('.buffer-tab[aria-selected="true"]').getAttribute('data-buffer-id');
+  await editor.fill('Hotkey note');
+  await editor.evaluate(el => el.setSelectionRange(3,6));
   await page.keyboard.press(`${mod(info)}+s`);
-  await expect(page.locator('#note-input')).toHaveValue('');
+  await expect(page.locator('#note-save-status')).toHaveAttribute('data-saved','true');
+  await expect(editor).toHaveValue('Hotkey note');
+  expect(await editor.evaluate(el => [el.selectionStart,el.selectionEnd])).toEqual([3,6]);
+  await expect(page.locator('.buffer-tab[aria-selected="true"]')).toHaveAttribute('data-buffer-id',tabId);
+  await expect(page.locator('#save-label')).toHaveText('Update');
+  await page.keyboard.press(`${mod(info)}+s`);
+  await expect(page.locator('#btn-save')).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => window.testState.data.notes.length)).toBe(1);
   await page.keyboard.press(`${mod(info)}+Shift+h`);
   await page.locator('.history-open').click();
+  await expect(page.locator('.buffer-tab')).toHaveCount(1);
   await page.locator('#note-input').fill('Hotkey update');
   await page.keyboard.press(`${mod(info)}+s`);
   await expect.poll(() => page.evaluate(() => window.testState.data.notes.map(n => n.content))).toEqual(['Hotkey update']);
   await expect(page.locator('#note-input')).toHaveValue('Hotkey update');
+  await page.reload();
+  await expect(editor).toHaveValue('Hotkey update');
+  await expect(page.locator('.buffer-tab[aria-selected="true"]')).toHaveAttribute('data-buffer-id',tabId);
+  await expect(page.locator('#note-save-status')).toHaveAttribute('data-saved','true');
 });
 
 test('tab context menu targets the clicked tab, supports keyboard and confirms discard all', async ({page},info) => {
@@ -522,7 +690,7 @@ test('tab context menu targets the clicked tab, supports keyboard and confirms d
   await page.locator('.buffer-tab').first().click();
   await page.locator('.buffer-tab').last().click({button:'right'});
   await page.getByRole('menuitem', {name:'Close tab',exact:true}).click();
-  await page.locator('#confirm-ok').click();
+  await page.locator('#close-tab-discard').click();
   await expect(page.locator('.buffer-tab')).toHaveCount(1);
   await expect(editor).toHaveValue('Keep this');
   await page.locator('.buffer-tab').focus();

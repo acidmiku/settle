@@ -4,8 +4,8 @@ import { normalizeSyntax } from './languages.js';
 
 const CACHE_KEY = 'settle.workspace.v3';
 const LEGACY_CACHE_KEY = 'settle.workspace.v2';
-export function newBuffer() {
-  return { id: crypto.randomUUID(), text: '', noteId: null, original: '', syntax: 'auto', preview: false };
+export function newBuffer(folderId = null) {
+  return { id: crypto.randomUUID(), text: '', title: null, folderId, noteId: null, original: '', syntax: 'auto', preview: false };
 }
 export function parseWorkspace(raw) {
   try {
@@ -27,9 +27,11 @@ export function parseWorkspace(raw) {
       version: 3, updatedAt: value.updatedAt, activeId,
       buffers: value.buffers.map(b => ({
         id: b.id, text: b.text,
+        title: typeof b.title === 'string' ? b.title : null,
+        folderId: typeof b.folderId === 'string' ? b.folderId : null,
         noteId: typeof b.noteId === 'string' ? b.noteId : null,
         original: typeof b.original === 'string' ? b.original : '',
-        syntax: normalizeSyntax(b.syntax), preview: b.preview === true,
+        syntax: normalizeSyntax(b.syntax), preview: b.preview === true, wysiwyg: b.wysiwyg === true,
       })),
     };
   } catch { return null; }

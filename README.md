@@ -10,12 +10,18 @@ Built for Windows and macOS with Rust, Tauri 2, and plain HTML, CSS, and JavaScr
 
 Every tab is a place to write. Drafts recover automatically when you reopen Settle, including each tab's syntax selection and Markdown preview state.
 
-- **Save a new note** with `Ctrl+S` on Windows or `Cmd+S` on macOS. Settle stores it in your dated notes and clears the tab for your next thought.
+- **Save a new note** with `Ctrl+S` on Windows or `Cmd+S` on macOS. Settle stores it in your library and keeps the same tab open. Keep writing and save again to update it; use `Ctrl/Cmd+N` for a new note. The Save button and Enter save shortcuts behave the same way.
 - **Edit a saved note** by opening it from the saved-notes drawer or search. Save updates that note in place and keeps it open.
 - **Copy + clear** sends the current text to the clipboard and clears the tab. If copying fails, your text stays put.
 - **Hide and return** with the configurable global shortcut. Closing the window hides Settle; use Quit in the tray or app menu to exit.
 
-Saved notes live in an optional drawer, grouped by day. Search them from anywhere in the editor with `Ctrl/Cmd+K`.
+Saved notes live in an optional drawer, in one continuous list separated by date headings, newest first. Browse **All notes**, **Unfiled**, or a folder. Long libraries load in pages. Search them from anywhere in the editor with `Ctrl/Cmd+K`.
+
+Double-click a note's label in the drawer or its tab to **rename** it, or use the right-click menu. Names are separate from note text and included in search. Clear a name to use the first line again.
+
+Create folders with **New folder**. Use **New note** inside a folder to save there, or a note's **Move to folder** menu to move an existing note. Folder menus offer rename and delete; deleting a folder keeps its notes in Unfiled.
+
+The footer shows a **green Saved** dot when the current note matches its saved content, and a **red Not saved** dot for drafts or unsaved edits. Automatic draft backup is separate from saving a note to the library.
 
 ## Editor tools
 
@@ -39,6 +45,12 @@ When Markdown is detected or selected, **Preview Markdown** appears in the foote
 
 Preview leaves your text unchanged. Web and email links open in the default application. Remote images appear as their alternative text, and scripts and embedded pages are removed.
 
+### WYSIWYG Markdown editing
+
+With Markdown selected or detected, click **WYSIWYG** beside the language selector to edit rendered text. Formatting controls appear below the tabs: headings, bold, italic, strikethrough, inline code, lists, checklists, quotes, links, code blocks, tables, rules, and undo/redo. Edits are stored as Markdown and use the normal save and draft-recovery paths. Each tab remembers its editing view.
+
+Click **WYSIWYG** again to return to source, or **Preview Markdown** for the read-only view. Merely switching views preserves the original source exactly; visual edits may normalize Markdown formatting. Notes containing raw HTML stay in source mode to preserve their markup. Image references remain in the Markdown and display as labels without fetching remote images.
+
 ### Tab actions
 
 Right-click a tab or the tab bar for:
@@ -46,11 +58,14 @@ Right-click a tab or the tab bar for:
 | Action | Behavior |
 | --- | --- |
 | New tab | Open a fresh draft. |
-| Close tab | Close the targeted tab, asking before discarding unsaved text or edits. |
+| Rename note | Give the tab or saved note a name without changing its text. |
+| Close tab | Close the targeted tab. Unsaved work offers **Save & close**, **Discard**, and **Cancel**. |
 | Close all with saving | Save new drafts, update edited notes, and start with one empty tab. |
 | Close all without saving | Confirm before discarding unsaved work. Previously saved notes remain. |
 
 If saving all tabs fails, the tabs stay open. Retrying updates notes already saved instead of creating duplicates. The menu also opens with `Shift+F10` while a tab has focus.
+
+Every tab also has its own close button. A failed save keeps that tab and its text open.
 
 ## Ten designs
 
@@ -100,7 +115,7 @@ In **Settings → Updates**, click **Check for updates** to check the latest sta
 
 Enable **Settings → System → Start with OS** to open Settle when you sign in. It defaults to off and uses Windows startup registration or a macOS Launch Agent. Opening the app again brings its existing window forward.
 
-On macOS, copy Settle into Applications before enabling startup or using in-app updates. Version 0.2.0 needs one manual upgrade to 0.2.1 to gain the updater.
+On macOS, copy Settle into Applications before enabling startup or using in-app updates. Version 0.2.0 needs one manual upgrade to 0.2.1 or later to gain the updater.
 
 ## Your data
 
@@ -111,7 +126,7 @@ Notes, drafts, and settings are stored locally. Drafts are cached as you type an
 | Windows | `%APPDATA%\com.settle.app\settle.sqlite3` |
 | macOS | `~/Library/Application Support/com.settle.app/settle.sqlite3` |
 
-**Settings → Your data** shows the actual database path and offers JSON and Markdown exports, including open drafts. Each export gets its own folder under the app-data directory's `exports/` folder. Existing notes and drafts are retained when upgrading.
+**Settings → Your data** shows the actual database path and offers JSON and Markdown exports, including open drafts, note names, and folder information. Each export gets its own folder under the app-data directory's `exports/` folder. Existing notes and drafts are retained when upgrading; older notes initially appear in Unfiled.
 
 ## Development
 
@@ -139,7 +154,7 @@ Rust tests exercise real SQLite databases, migrations, search, and exports. Play
 
 ### Bundled libraries
 
-Highlight.js provides syntax highlighting; Marked and DOMPurify provide Markdown rendering and sanitization. All three ship locally in `src/vendor/editor.js`, with licenses in `src/vendor/LICENSES.txt`.
+Highlight.js provides syntax highlighting; Marked and DOMPurify provide Markdown rendering and sanitization. Tiptap and ProseMirror provide WYSIWYG editing with local Markdown conversion. All libraries ship locally in `src/vendor/editor.js` and `src/vendor/wysiwyg.js`, with licenses in `src/vendor/LICENSES.txt`.
 
 After changing their pinned dependencies or `scripts/vendor-entry.js`, rebuild the bundle:
 
@@ -149,6 +164,8 @@ npm run vendor
 ```
 
 CI checks that the generated bundle matches its sources. Local design references in `design_concepts/` are ignored by Git and are not needed to build the app.
+
+For an interactive browser preview, run `node tests/server.js` and open `http://127.0.0.1:4173/preview`. It uses sample notes and isolated browser storage; it does not access the desktop database. The preview bridge is served from `tests/` and is excluded from desktop builds.
 
 ## Build installers
 

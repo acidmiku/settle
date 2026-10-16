@@ -27,7 +27,7 @@ export function createSearch(onOpen) {
       const found = await invoke('search', { query, limit: 60 });
       if (version !== revision || !dialog.open) return;
       rows = found;
-      results.innerHTML = rows.length ? rows.map(row => `<button class="search-result"><time>${escapeHtml(row.local_date)}</time><p>${escapeHtml(row.snippet)}</p></button>`).join('') : '<p class="empty">No notes found. Try another word.</p>';
+      results.innerHTML = rows.length ? rows.map(row => `<button class="search-result"><time>${escapeHtml(row.local_date)}</time>${row.title ? `<strong>${escapeHtml(row.title)}</strong>` : ''}<p>${escapeHtml(row.snippet)}</p></button>`).join('') : '<p class="empty">No notes found. Try another word.</p>';
       [...results.querySelectorAll('button')].forEach((button,i) => button.onclick = () => jump(rows[i]));
       select(0);
     } catch (e) { if (version === revision) results.textContent = `Search failed: ${e}`; }

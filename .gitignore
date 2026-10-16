@@ -64,6 +64,7 @@ src-tauri/gen/
 scripts/*
 !scripts/build-vendor.mjs
 !scripts/vendor-entry.js
+!scripts/wysiwyg-entry.js
 !scripts/create-update-manifest.mjs
 AGENTS.md
 design_concepts/

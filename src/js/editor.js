@@ -3,12 +3,14 @@ import { invoke } from './api.js';
 import { toast } from './toast.js';
 import { LANGUAGES, languageName, normalizeSyntax } from './languages.js';
 import { detectSyntax, highlight, renderMarkdown } from './syntax.js';
+import { createRichEditor } from './rich-editor.js';
 
 export function createEditor(onChange, onOptionsChange, settings) {
   const input = $('note-input'), title = $('note-title'), layer = $('syntax-layer');
   const preview = $('markdown-preview'), selector = $('syntax-select');
   let lastTarget = input, designSelection = null, redline = false, source = '';
   let syntax = 'auto', language = 'plaintext', previewing = false, composing = false, highlightTimer;
+  let rich = null;
   let lineNumbers = settings.line_numbers !== 'false', metricKey = '', heights = [], offsets = [];
   selector.innerHTML = '<option value="auto">Auto · Plain text</option>' + LANGUAGES.map(([id,name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
 
@@ -60,20 +62,27 @@ export function createEditor(onChange, onOptionsChange, settings) {
     selector.options[0].textContent = `Auto · ${languageName(language)}`;
     document.documentElement.dataset.language = language;
     $('btn-markdown-preview').hidden = language !== 'markdown';
+    $('btn-wysiwyg').hidden = language !== 'markdown';
+    if (language !== 'markdown' && rich) setRich(false, false);
     if (language !== 'markdown' && previewing) setPreview(false);
     paint();
     if (previewing) renderMarkdown(source, preview);
   }
   function setText(text) {
+    const wasRich = Boolean(rich);
+    if (wasRich) setRich(false, false);
     source = text;
     language = syntax === 'auto' ? detectSyntax(source) : syntax;
     layout(); refreshSyntax();
+    if (wasRich && language === 'markdown') setRich(true, false);
   }
   function setBuffer(buffer) {
+    setRich(false, false);
     syntax = normalizeSyntax(buffer.syntax);
     // Render source first, then restore this tab's preview preference.
     setPreview(false, false); setText(buffer.text);
     setPreview(buffer.preview && language === 'markdown', false);
+    if (buffer.wysiwyg && language === 'markdown') setRich(true, false);
   }
   function changed() {
     source = redline ? title.value + (input.value || source.includes('\n') ? '\n' + input.value : '') : input.value;
@@ -85,7 +94,7 @@ export function createEditor(onChange, onOptionsChange, settings) {
     highlightTimer = setTimeout(refreshSyntax, 100);
   }
   function updateMetrics() {
-    if (previewing || !input.clientWidth) return;
+    if (previewing || rich || !input.clientWidth) return;
     const lines = input.value.split('\n'), css = getComputedStyle(input);
     const leading = parseFloat(css.lineHeight);
     const key = [input.clientWidth, css.font, css.padding, input.wrap, redline, document.documentElement.dataset.design, input.value].join('|');
@@ -132,18 +141,40 @@ export function createEditor(onChange, onOptionsChange, settings) {
     paint();
   }
   function setPreview(enabled, persist = true) {
+    if (enabled && rich) setRich(false, false);
     previewing = Boolean(enabled && language === 'markdown');
     if (previewing) { refreshSyntax(); renderMarkdown(source, preview); }
-    $('editor-source').hidden = previewing;
+    $('editor-source').hidden = previewing || Boolean(rich);
     preview.hidden = !previewing;
     $('btn-markdown-preview').setAttribute('aria-pressed', String(previewing));
     $('btn-markdown-preview').textContent = previewing ? 'Edit Markdown' : 'Preview Markdown';
-    $('btn-line-numbers').disabled = previewing;
-    if (persist) onOptionsChange({syntax, preview:previewing});
+    $('btn-line-numbers').disabled = previewing || Boolean(rich);
+    if (persist) onOptionsChange({syntax, preview:previewing, wysiwyg:Boolean(rich)});
     if (!previewing) updateMetrics();
   }
-  function focus() { (previewing ? preview : redline && !source ? title : lastTarget).focus(); }
-  function revealSource() { if (previewing) { setPreview(false); focus(); } }
+  function setRich(enabled, persist = true) {
+    if (enabled && language !== 'markdown') return;
+    if (enabled && !rich) {
+      try {
+        const next = createRichEditor(source, text => {
+          source = text; layout(); onChange(source);
+        });
+        setPreview(false, false);
+        rich = next;
+        // Keep a now-empty or plain paragraph in Markdown while editing visually.
+        syntax = 'markdown'; selector.value = syntax;
+      } catch (error) { toast(`Could not open WYSIWYG: ${error}`, {kind:'error'}); return; }
+    } else if (!enabled && rich) { rich.destroy(); rich = null; layout(); paint(); }
+    $('editor-source').hidden = Boolean(rich) || previewing;
+    $('rich-editor').hidden = !rich;
+    $('wysiwyg-toolbar').hidden = !rich;
+    $('btn-wysiwyg').setAttribute('aria-pressed', String(Boolean(rich)));
+    $('btn-line-numbers').disabled = Boolean(rich) || previewing;
+    rich?.refresh();
+    if (persist) onOptionsChange({syntax, preview:previewing, wysiwyg:Boolean(rich)});
+  }
+  function focus() { if (rich) rich.focus(); else (previewing ? preview : redline && !source ? title : lastTarget).focus(); }
+  function revealSource() { if (rich) setRich(false); if (previewing) setPreview(false); focus(); }
   function select(start, end) {
     revealSource(); restoreSelection(start,end,true);
     if (lastTarget === input) {
@@ -167,9 +198,10 @@ export function createEditor(onChange, onOptionsChange, settings) {
   }
   selector.addEventListener('change', () => {
     syntax = normalizeSyntax(selector.value); refreshSyntax();
-    onOptionsChange({syntax, preview:previewing}); focus();
+    onOptionsChange({syntax, preview:previewing, wysiwyg:Boolean(rich)}); focus();
   });
   $('btn-markdown-preview').onclick = () => { refreshSyntax(); setPreview(!previewing); focus(); };
+  $('btn-wysiwyg').onclick = () => { refreshSyntax(); setRich(!rich); focus(); };
   preview.addEventListener('click', async e => {
     const link = e.target.closest('a[href]');
     if (!link) return;
@@ -186,12 +218,12 @@ export function createEditor(onChange, onOptionsChange, settings) {
       document.documentElement.dataset.lineNumbers = String(lineNumbers);
       button.setAttribute('aria-pressed', String(lineNumbers)); metricKey = ''; updateMetrics();
     } catch (e) { toast(`Line numbers could not be saved: ${e}`, {kind:'error'}); }
-    finally { button.disabled = previewing; }
+    finally { button.disabled = previewing || Boolean(rich); }
   };
   input.addEventListener('focus', () => { lastTarget = input; });
   title.addEventListener('focus', () => { lastTarget = title; });
   $('settings-dialog').addEventListener('close', () => {
-    if (!designSelection || previewing) { designSelection = null; return; }
+    if (!designSelection || previewing || rich) { designSelection = null; return; }
     const [target,start,end] = designSelection; designSelection = null;
     target.focus(); target.setSelectionRange(start,end); updateMetrics();
   });
