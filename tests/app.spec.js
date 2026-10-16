@@ -228,16 +228,16 @@ test('startup toggle reflects the OS, survives reload and recovers from errors',
 
 test('update checks are manual and hide stale offers after failed or current checks', async ({page},info) => {
   await page.keyboard.press(`${mod(info)}+,`);
-  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.2');
+  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.3');
   const check = page.locator('#btn-check-update'), install = page.locator('#btn-install-update');
   expect(await page.evaluate(() => window.testState.calls.some(c => c.command === 'check_for_update'))).toBe(false);
   await expect(install).toBeHidden();
   await check.click();
   await expect(page.locator('#update-status')).toContainText('up to date');
-  await page.evaluate(() => { window.testState.update = {version:'0.2.3',notes:'<img src=x onerror=alert(1)> New features'}; });
+  await page.evaluate(() => { window.testState.update = {version:'0.2.4',notes:'<img src=x onerror=alert(1)> New features'}; });
   await check.click();
   await expect(install).toBeVisible();
-  await expect(page.locator('#update-status')).toContainText('0.2.3');
+  await expect(page.locator('#update-status')).toContainText('0.2.4');
   await expect(page.locator('#update-notes img')).toHaveCount(0);
   await page.evaluate(() => { window.testState.fail = 'check_for_update'; });
   await check.click();
@@ -253,7 +253,7 @@ test('update installation requires a successful draft backup, retries and locks 
   const editor = page.locator('#note-input');
   await editor.fill('Unsaved draft before update');
   await page.keyboard.press(`${mod(info)}+,`);
-  await page.evaluate(() => { window.testState.update = {version:'0.2.3',notes:'New features'}; });
+  await page.evaluate(() => { window.testState.update = {version:'0.2.4',notes:'New features'}; });
   await page.locator('#btn-check-update').click();
   await page.evaluate(() => { window.testState.fail = 'set_setting'; });
   await page.locator('#btn-install-update').click();

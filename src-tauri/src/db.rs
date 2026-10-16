@@ -4,7 +4,7 @@ use chrono::{Local, SecondsFormat, Utc};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use regex::Regex;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -77,40 +77,85 @@ impl Db {
 
     pub fn migrate(&self) -> DbResult<()> {
         let mut conn = self.pool.get()?;
-        conn.execute_batch(
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute_batch(
             r#"
-      PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS editor_schema_migrations (
+        name TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL
       );
       "#,
         )?;
 
-        for (version, sql) in [
-            (1, include_str!("../migrations/001_initial.sql")),
-            (2, include_str!("../migrations/002_editor.sql")),
-            (3, include_str!("../migrations/003_note_library.sql")),
-        ] {
-            let applied: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
-                params![version],
+        let initial_applied: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = 1)",
+            [],
+            |r| r.get(0),
+        )?;
+        let applied_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        if !initial_applied {
+            tx.execute_batch(include_str!("../migrations/001_initial.sql"))?;
+            tx.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (1, ?1)",
+                params![applied_at],
+            )?;
+        }
+
+        // Older builds already used numeric migrations 2 and 3 for unrelated changes.
+        // Keep that history intact, but track editor migrations in their own namespace.
+        for (name, legacy_version) in [("editor_settings_v1", 2), ("note_library_v1", 3)] {
+            let applied: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM editor_schema_migrations WHERE name = ?1)",
+                params![name],
                 |r| r.get(0),
             )?;
             if applied {
                 continue;
             }
-            let tx = conn.transaction()?;
-            tx.execute_batch(sql)?;
+            if name == "editor_settings_v1" {
+                tx.execute_batch(include_str!("../migrations/002_editor.sql"))?;
+            } else {
+                // Adopt complete 0.2.2 databases and repair upgrades that skipped its schema.
+                // Add only missing fields so existing names, folders and legacy columns survive.
+                tx.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS folders (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL COLLATE NOCASE UNIQUE
+                    );",
+                )?;
+                for (column, sql) in [
+                    ("title", "ALTER TABLE notes ADD COLUMN title TEXT"),
+                    (
+                        "folder_id",
+                        "ALTER TABLE notes ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL",
+                    ),
+                ] {
+                    let exists: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('notes') WHERE name = ?1)",
+                        params![column],
+                        |r| r.get(0),
+                    )?;
+                    if !exists {
+                        tx.execute_batch(sql)?;
+                    }
+                }
+                tx.execute_batch(include_str!("../migrations/004_reconcile_note_library.sql"))?;
+            }
             tx.execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (?1, ?2)",
-                params![
-                    version,
-                    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
-                ],
+                "INSERT INTO editor_schema_migrations(name, applied_at) VALUES (?1, ?2)",
+                params![name, applied_at],
             )?;
-            tx.commit()?;
+            // Older editor releases still consult these markers if reinstalled.
+            tx.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?1, ?2)",
+                params![legacy_version, applied_at],
+            )?;
         }
+        tx.commit()?;
         Ok(())
     }
 

@@ -65,6 +65,174 @@ fn migrates_existing_data_and_preserves_archived_content() {
 }
 
 #[test]
+fn repairs_colliding_legacy_migration_numbers_without_losing_data() {
+    let dir = std::env::temp_dir().join(format!("settle-legacy-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("settle.sqlite3");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(include_str!("../migrations/001_initial.sql"))
+        .unwrap();
+    // This older schema used the same migration numbers as the editor overhaul.
+    conn.execute_batch(
+        "ALTER TABLE notes ADD COLUMN deleted_at TEXT;
+         ALTER TABLE notes ADD COLUMN updated_at TEXT;
+         INSERT INTO schema_migrations VALUES (1, 'old-1'), (2, 'old-2'), (3, 'old-3');
+         INSERT INTO notes VALUES ('legacy', 'Original text  ', '2026-06-19', '10:00:00', '2026-06-19', '[]', NULL, 'old-update');
+         INSERT INTO summaries VALUES ('s1', '2026-06-19', 'Old title', 'Old summary', '{}', '2026-06-19', 'old');
+         INSERT INTO settings VALUES ('workspace', '{\"draft\":\"Keep this draft\"}');
+         INSERT INTO settings VALUES ('design', 'terminal');",
+    ).unwrap();
+    let db = Db::new(path.clone()).unwrap();
+    db.migrate().unwrap();
+    db.migrate().unwrap();
+    assert_eq!(
+        db.list_notes(None, true, 0, 100).unwrap()[0].content,
+        "Original text  "
+    );
+    assert_eq!(
+        db.get_setting("workspace").unwrap().as_deref(),
+        Some("{\"draft\":\"Keep this draft\"}")
+    );
+    assert_eq!(
+        db.get_setting("design").unwrap().as_deref(),
+        Some("terminal")
+    );
+    assert!(db.get_setting("api_key").unwrap().is_none());
+    assert_eq!(
+        db.export_all_json().unwrap()["summaries"][0]["summary"],
+        "Old summary"
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT updated_at FROM notes WHERE id = 'legacy'",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        "old-update"
+    );
+    let history: Vec<(i64, String)> = conn
+        .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        history,
+        vec![
+            (1, "old-1".into()),
+            (2, "old-2".into()),
+            (3, "old-3".into())
+        ]
+    );
+    let folder = db.create_folder("Work").unwrap();
+    db.move_note("legacy", Some(&folder.id)).unwrap();
+    db.rename_note("legacy", Some("Recovered title")).unwrap();
+    assert_eq!(db.search("Recovered", 10).unwrap()[0].id, "legacy");
+    assert_eq!(db.search("Original", 10).unwrap()[0].id, "legacy");
+    db.update_note("legacy", "Edited text").unwrap();
+    assert!(db.search("Original", 10).unwrap().is_empty());
+    assert_eq!(db.search("Edited", 10).unwrap().len(), 1);
+    drop(db);
+    let db = Db::new(path).unwrap();
+    db.migrate().unwrap();
+    assert_eq!(
+        db.list_notes(Some(&folder.id), false, 0, 100).unwrap()[0].content,
+        "Edited text"
+    );
+    db.delete_folder(&folder.id).unwrap();
+    assert_eq!(db.list_notes(None, true, 0, 100).unwrap().len(), 1);
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn adopts_complete_022_library_without_losing_names_or_folders() {
+    let dir = std::env::temp_dir().join(format!("settle-022-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("settle.sqlite3");
+    let conn = Connection::open(&path).unwrap();
+    for sql in [
+        include_str!("../migrations/001_initial.sql"),
+        include_str!("../migrations/002_editor.sql"),
+        include_str!("../migrations/003_note_library.sql"),
+    ] {
+        conn.execute_batch(sql).unwrap();
+    }
+    conn.execute_batch(
+        "INSERT INTO schema_migrations VALUES (1, 'release'), (2, 'release'), (3, 'release');
+         INSERT INTO folders VALUES ('work', 'Work');
+         INSERT INTO notes VALUES ('n1', 'Keep **Markdown**', '2026-10-16', '12:00:00', '2026-10-16', '[]', 'Named note', 'work');",
+    ).unwrap();
+    let db = Db::new(path).unwrap();
+    db.migrate().unwrap();
+    db.migrate().unwrap();
+    let note = &db.list_notes(Some("work"), false, 0, 100).unwrap()[0];
+    assert_eq!(note.title.as_deref(), Some("Named note"));
+    assert_eq!(note.content, "Keep **Markdown**");
+    assert_eq!(db.list_folders().unwrap()[0].note_count, 1);
+    assert_eq!(db.search("Named", 10).unwrap()[0].id, "n1");
+    assert_eq!(
+        conn.query_row("SELECT count(*) FROM editor_schema_migrations", [], |r| r
+            .get::<_, i64>(
+            0
+        ))
+        .unwrap(),
+        2
+    );
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn partial_library_repair_is_atomic_and_can_be_retried() {
+    let dir = std::env::temp_dir().join(format!("settle-partial-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("settle.sqlite3");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(include_str!("../migrations/001_initial.sql"))
+        .unwrap();
+    conn.execute_batch(
+        "INSERT INTO schema_migrations VALUES (1, 'old'), (2, 'old'), (3, 'old');
+         ALTER TABLE notes ADD COLUMN title TEXT;
+         INSERT INTO notes VALUES ('n1', 'Keep text', '2026-10-16', '12:00:00', '2026-10-16', '[]', 'Keep title');
+         CREATE TABLE idx_notes_library_date (id TEXT);",
+    ).unwrap();
+    let db = Db::new(path).unwrap();
+    assert!(db.migrate().is_err());
+    assert_eq!(conn.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('folders', 'editor_schema_migrations')", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM pragma_table_info('notes') WHERE name = 'folder_id'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert!(db.get_setting("api_key").unwrap().is_some());
+    conn.execute_batch("DROP TABLE idx_notes_library_date;")
+        .unwrap();
+    db.migrate().unwrap();
+    db.migrate().unwrap();
+    let note = &db.list_notes(None, true, 0, 100).unwrap()[0];
+    assert_eq!(note.content, "Keep text");
+    assert_eq!(note.title.as_deref(), Some("Keep title"));
+    assert_eq!(db.search("title", 10).unwrap()[0].id, "n1");
+    assert_eq!(
+        conn.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn folders_names_search_and_exports_survive_reopen_without_touching_content() {
     let (db, dir) = database();
     let work = db.create_folder("Work").unwrap();

@@ -128,6 +128,8 @@ Notes, drafts, and settings are stored locally. Drafts are cached as you type an
 
 **Settings → Your data** shows the actual database path and offers JSON and Markdown exports, including open drafts, note names, and folder information. Each export gets its own folder under the app-data directory's `exports/` folder. Existing notes and drafts are retained when upgrading; older notes initially appear in Unfiled.
 
+Database upgrades use a separate migration history for the editor so older builds' migration numbers cannot skip new features. Upgrades also repair missing note-library fields from affected 0.2.2 installations, preserving existing notes, names, folders, drafts, and archived data.
+
 ## Development
 
 Install stable Rust (1.90 or newer) and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Windows needs the MSVC build tools and WebView2; macOS needs Xcode Command Line Tools. Run these commands from the repository root:
