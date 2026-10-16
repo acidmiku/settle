@@ -4,3 +4,5 @@ export { Markdown } from '@tiptap/markdown';
 export { TableKit } from '@tiptap/extension-table';
 export { TaskList, TaskItem } from '@tiptap/extension-list';
 export { Image } from '@tiptap/extension-image';
+export { TextSelection } from '@tiptap/pm/state';
+export { canSplit } from '@tiptap/pm/transform';

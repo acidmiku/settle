@@ -1,4 +1,4 @@
-import { Editor, StarterKit, Markdown, TableKit, TaskList, TaskItem, Image } from '../vendor/wysiwyg.js';
+import { Editor, StarterKit, Markdown, TableKit, TaskList, TaskItem, Image, TextSelection, canSplit } from '../vendor/wysiwyg.js';
 import { DOMPurify, marked } from '../vendor/editor.js';
 import { $, editItem } from './utils.js';
 
@@ -6,6 +6,48 @@ import { $, editItem } from './utils.js';
 const LocalImage = Image.extend({
   renderHTML({node}) { return ['span', {class:'rich-image', contenteditable:'false'}, node.attrs.alt || 'Image']; },
 }).configure({inline:true, allowBase64:true});
+
+function isolateSelectedLines({tr}) {
+  const selection = tr.selection, breaks = new Set();
+  let first = Infinity, last = -Infinity;
+  tr.doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+    if (!node.isTextblock) return;
+    const separators = [], start = pos + 1, end = start + node.content.size;
+    if (['paragraph','heading'].includes(node.type.name)) node.forEach((child, offset) => {
+      if (child.type.name === 'hardBreak') separators.push(start + offset);
+      else if (child.isText) for (let i = 0; i < child.text.length; i++) {
+        if (child.text[i] === '\n') separators.push(start + offset + i);
+      }
+    });
+    let lineStart = start;
+    for (let i = 0; i <= separators.length; i++) {
+      const lineEnd = separators[i] ?? end;
+      const selected = selection.empty
+        ? selection.from >= lineStart && selection.from <= lineEnd
+        : selection.from <= lineEnd && selection.to > lineStart;
+      if (selected) {
+        first = Math.min(first, lineStart); last = Math.max(last, lineEnd);
+        if (i > 0) breaks.add(separators[i - 1]);
+        if (i < separators.length) breaks.add(separators[i]);
+      }
+      lineStart = lineEnd + 1;
+    }
+    return false;
+  });
+  if (!Number.isFinite(first)) return true;
+  // A Markdown paragraph can contain many visible lines. Split only the boundaries
+  // touched by this selection, keeping surrounding text, inline marks and undo intact.
+  const mappingStart = tr.mapping.maps.length;
+  for (const pos of [...breaks].sort((a,b) => b - a)) {
+    if (!canSplit(tr.doc, pos)) continue;
+    tr.delete(pos, pos + 1).split(pos);
+  }
+  const mapping = tr.mapping.slice(mappingStart);
+  const from = mapping.map(Math.max(selection.from, first), 1);
+  const to = selection.empty ? from : mapping.map(Math.min(selection.to, last), -1);
+  tr.setSelection(TextSelection.create(tr.doc, selection.anchor > selection.head ? to : from, selection.anchor > selection.head ? from : to));
+  return true;
+}
 
 export function createRichEditor(text, onChange) {
   let hasHtml = false;
@@ -56,12 +98,24 @@ export function createRichEditor(text, onChange) {
         else editor.chain().focus().extendMarkRange('link').unsetLink().run();
       }}),
   };
-  toolbar.onmousedown = event => { if (event.target.closest('button')) event.preventDefault(); };
+  function syncSelection() {
+    // Native selects can take focus before the editor receives selectionchange.
+    const selection = window.getSelection(), view = editor.view;
+    if (!selection?.anchorNode || !view.dom.contains(selection.anchorNode) || !view.dom.contains(selection.focusNode)) return;
+    const anchor = view.posAtDOM(selection.anchorNode, selection.anchorOffset);
+    const head = view.posAtDOM(selection.focusNode, selection.focusOffset);
+    const next = TextSelection.between(editor.state.doc.resolve(anchor), editor.state.doc.resolve(head));
+    if (!next.eq(editor.state.selection)) view.dispatch(editor.state.tr.setSelection(next));
+  }
+  toolbar.onmousedown = event => { syncSelection(); if (event.target.closest('button')) event.preventDefault(); };
+  toolbar.onfocusin = syncSelection;
   toolbar.onclick = event => { const action = event.target.closest('[data-rich]')?.dataset.rich; if (actions[action]) { actions[action](); updateToolbar(); } };
   $('rich-heading').onchange = event => {
     const level = Number(event.target.value);
-    if (level) editor.chain().focus().setHeading({level}).run();
-    else editor.chain().focus().setParagraph().run();
+    syncSelection();
+    const chain = editor.chain().focus().command(isolateSelectedLines);
+    if (level) chain.setHeading({level}).run();
+    else chain.setParagraph().run();
     updateToolbar();
   };
   updateToolbar();

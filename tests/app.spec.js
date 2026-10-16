@@ -177,6 +177,75 @@ test('browser preview shows the library beside rich text and works at compact wi
   expect(await page.locator('body').evaluate(el => el.scrollWidth <= innerWidth)).toBe(true);
 });
 
+for (const separator of ['\n', '  \n', '\n\n']) {
+  test(`heading formatting affects only selected lines (${JSON.stringify(separator)})`, async ({page},info) => {
+    const source = ['Before one', 'Before two', 'Target **words** here', 'After one', 'After two'].join(separator);
+    const input = page.locator('#note-input'), rich = page.getByRole('textbox',{name:'Rich text note editor'});
+    await input.fill(source); await page.locator('#syntax-select').selectOption('markdown'); await page.locator('#btn-wysiwyg').click();
+    await page.locator('#rich-editor strong').dblclick();
+    await expect.poll(() => page.evaluate(() => getSelection().toString().trim())).toBe('words');
+    await page.locator('#rich-heading').focus(); await page.locator('#rich-heading').selectOption('2');
+    await expect(page.locator('#rich-editor h2')).toHaveText('Target words here');
+    await expect(page.locator('#rich-editor h2 strong')).toHaveText('words');
+    await expect(rich).toContainText('Before one'); await expect(rich).toContainText('After two');
+    const edited = await page.evaluate(() => JSON.parse(localStorage.getItem('settle.workspace.v3')).buffers[0].text);
+    expect(edited).toBe(['Before one' + separator + 'Before two', '## Target **words** here', 'After one' + separator + 'After two'].join('\n\n'));
+    await page.getByRole('button',{name:'Undo',exact:true}).click();
+    await expect(page.locator('#rich-editor h2')).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('settle.workspace.v3')).buffers[0].text)).toBe(source);
+    await page.getByRole('button',{name:'Redo',exact:true}).click();
+    await expect(page.locator('#rich-editor h2')).toHaveText('Target words here');
+    await page.keyboard.press(`${mod(info)}+s`);
+    await page.reload(); await expect(page.locator('#rich-editor h2')).toHaveText('Target words here');
+    await page.locator('#rich-editor h2 strong').click(); await expect(page.locator('#rich-heading')).toHaveValue('2');
+    await page.locator('#rich-heading').focus(); await page.locator('#rich-heading').selectOption('0');
+    await expect(page.locator('#rich-editor h2')).toHaveCount(0);
+    await expect(page.locator('#rich-editor strong')).toHaveText('words');
+  });
+}
+
+test('headings keep caret and multi-line selections scoped, including a next-line boundary', async ({page}) => {
+  const source = 'Before\nOne\nTwo\nAfter';
+  await page.locator('#note-input').fill(source); await page.locator('#syntax-select').selectOption('markdown'); await page.locator('#btn-wysiwyg').click();
+  const rich = page.getByRole('textbox',{name:'Rich text note editor'});
+  const cases = [
+    {anchor:8, head:8, headings:['One']},
+    {anchor:7, head:14, headings:['One','Two']},
+    {anchor:14, head:7, headings:['One','Two']},
+    {anchor:7, head:11, headings:['One']},
+    {anchor:0, head:0, headings:['Before']},
+    {anchor:20, head:20, headings:['After']},
+  ];
+  for (const {anchor,head,headings} of cases) {
+    await rich.click();
+    await rich.evaluate(async (el,{anchor,head}) => {
+      const text = el.querySelector('p').firstChild;
+      const selection = getSelection();
+      if (selection.anchorNode === text && selection.focusNode === text && selection.anchorOffset === anchor && selection.focusOffset === head) return;
+      const changed = new Promise(resolve => document.addEventListener('selectionchange',resolve,{once:true}));
+      selection.setBaseAndExtent(text,anchor,text,head);
+      await changed;
+    }, {anchor,head});
+    await page.locator('#rich-heading').focus(); await page.locator('#rich-heading').selectOption('3');
+    await expect(page.locator('#rich-editor h3')).toHaveText(headings);
+    await expect(rich).toBeFocused();
+    await page.getByRole('button',{name:'Undo',exact:true}).click();
+    await expect(page.locator('#rich-editor h3')).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('settle.workspace.v3')).buffers[0].text)).toBe(source);
+  }
+  await page.locator('#btn-wysiwyg').click();
+  await page.locator('#note-input').fill('Before\n\nOne\n\nTwo\n\nAfter');
+  await page.locator('#btn-wysiwyg').click();
+  await page.locator('#rich-editor p').nth(1).click();
+  await rich.evaluate(el => {
+    const paragraphs = el.querySelectorAll('p');
+    getSelection().setBaseAndExtent(paragraphs[1].firstChild,0,paragraphs[2].firstChild,0);
+  });
+  await page.locator('#rich-heading').focus(); await page.locator('#rich-heading').selectOption('2');
+  await expect(page.locator('#rich-editor h2')).toHaveText(['One']);
+  await expect(page.locator('#rich-editor p')).toHaveText(['Before','Two','After']);
+});
+
 test('rich text typing, view switches and themes keep content and never execute raw HTML', async ({page},info) => {
   const input = page.locator('#note-input');
   await page.locator('#syntax-select').selectOption('markdown'); await page.locator('#btn-wysiwyg').click();
