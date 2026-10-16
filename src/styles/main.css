@@ -93,6 +93,7 @@ input[type="checkbox"] { width:18px; height:18px; accent-color:var(--accent); }
 .field-row { display:flex; gap:9px; }
 .button { border:1px solid var(--line); padding:9px 15px; border-radius:var(--radius); white-space:nowrap; }
 .button:hover { border-color:var(--accent); }
+.update-notes { white-space:pre-wrap; overflow-wrap:anywhere; max-height:180px; overflow:auto; }
 .db-info { font:11px/1.7 var(--mono); overflow-wrap:anywhere; color:var(--muted); margin-bottom:14px; }
 .shortcut-list { display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; margin-top:16px; color:var(--muted); }
 .dialog-foot { display:flex; align-items:center; gap:22px; padding:16px 26px; border-top:1px solid var(--line); font:11px var(--mono); color:var(--muted); }

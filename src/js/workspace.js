@@ -90,5 +90,9 @@ export function createWorkspace(remote, onStatus) {
   setInterval(() => { if (failed) flush(); }, 5000);
   current();
   persist();
-  return { state, current, persist, flush };
+  async function flushRequired() {
+    await flush();
+    if (pending) throw new Error('Draft backup is pending. Please retry after the database is available.');
+  }
+  return { state, current, persist, flush, flushRequired };
 }

@@ -79,8 +79,17 @@
       <div class="dialog-body">
         <section><div class="section-head"><h2>Design</h2><span class="muted">Ten ways to settle in.</span></div><div id="design-picker" class="design-picker" role="group" aria-label="Choose a design"></div></section>
         <section class="settings-behavior"><h2>Writing</h2>
+          <label class="setting-row"><span>Word wrap<small>Fit long lines to the editor width in every design.</small></span><input id="set-word-wrap" type="checkbox" role="switch" checked/></label>
           <label class="setting-row"><span>Enter to save<small>Use Shift+Enter for a new line.</small></span><input id="set-enter-save" type="checkbox" role="switch"/></label>
           <form id="hotkey-form" class="field"><label for="set-hotkey">Global shortcut</label><div class="field-row"><input id="set-hotkey" autocomplete="off" placeholder="CmdOrCtrl+Shift+Space"/><button class="button" type="submit">Apply</button></div><small class="muted">Show or hide Settle from any app. Leave empty to disable.</small><span id="hotkey-status" role="status"></span></form>
+        </section>
+        <section><h2>System</h2>
+          <label class="setting-row"><span>Start with OS<small>Open Settle when you sign in to your computer.</small></span><input id="set-start-with-os" type="checkbox" role="switch" disabled/></label>
+          <p id="startup-status" class="muted" role="status"></p>
+          <h2>Updates</h2><p id="app-version" class="muted"></p>
+          <div class="field-row"><button id="btn-check-update" class="button">Check for updates</button><button id="btn-install-update" class="button" hidden>Install update</button></div>
+          <p class="muted">Installing an update saves your drafts and restarts Settle.</p>
+          <p id="update-status" role="status"></p><p id="update-notes" class="update-notes muted"></p>
         </section>
         <section><h2>Your data</h2><p class="muted">Notes and drafts stay on this device.</p><div id="db-info" class="db-info"></div><div class="field-row"><button id="btn-export-json" class="button">Export JSON</button><button id="btn-export-md" class="button">Export Markdown</button></div><p id="export-status" class="muted" role="status"></p></section>
         <section><h2>Keyboard</h2><div class="shortcut-list"><span>Save</span><kbd data-shortcut="S">Ctrl S</kbd><span>New buffer</span><kbd data-shortcut="N">Ctrl N</kbd><span>Find in buffer</span><kbd data-shortcut="F">Ctrl F</kbd><span>Saved notes</span><kbd data-shortcut="Shift H">Ctrl Shift H</kbd><span>Search saved notes</span><kbd data-shortcut="K">Ctrl K</kbd><span>Settings</span><kbd data-shortcut=",">Ctrl ,</kbd></div></section>

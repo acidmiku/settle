@@ -5,6 +5,7 @@ mod db;
 mod export;
 mod hotkey;
 mod models;
+mod system;
 mod window_layout;
 
 use commands::AppState;
@@ -17,6 +18,12 @@ use tauri_plugin_global_shortcut::ShortcutState;
 
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            let _ = hotkey::show_and_focus(app);
+        }))
+        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(system::UpdateState::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -103,6 +110,10 @@ fn main() {
             commands::show_main_window,
             commands::copy_to_clipboard,
             commands::open_preview_link,
+            system::get_start_with_os,
+            system::set_start_with_os,
+            system::check_for_update,
+            system::install_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Settle");

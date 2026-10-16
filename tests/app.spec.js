@@ -14,7 +14,17 @@ test.beforeEach(async ({page}, info) => {
         if (command === 'create_note' && args.content === window.testState.failContent) throw new Error('Simulated tab save failure');
         switch(command) {
           case 'get_settings': return data.settings;
-          case 'get_runtime_info': return {platform};
+          case 'get_runtime_info': return {platform,version:'0.2.1'};
+          case 'get_start_with_os': return data.startWithOs === true;
+          case 'set_start_with_os': data.startWithOs = args.enabled; persist(); return data.startWithOs;
+          case 'check_for_update': return window.testState.update || null;
+          case 'install_update': {
+            window.testState.installedWorkspace = data.settings.workspace;
+            window.testState['settle:update-progress']?.({payload:{phase:'downloading',downloaded:50,total:100}});
+            await new Promise(r => setTimeout(r,200));
+            window.testState['settle:update-progress']?.({payload:{phase:'installing'}});
+            return;
+          }
           case 'get_db_info': return { path:'/local/settle.sqlite3', size_bytes:12345 };
           case 'set_setting': data.settings[args.key] = args.value; persist(); return;
           case 'create_note': {
@@ -33,7 +43,7 @@ test.beforeEach(async ({page}, info) => {
           default: throw new Error(`Unexpected command ${command}`);
         }
       } },
-      event: { async listen(name,handler) { window.testState[name] = handler; return () => {}; } },
+      event: { async listen(name,handler) { window.testState[name] = handler; return () => { delete window.testState[name]; }; } },
     };
   }, { platform:info.project.name.startsWith('macos') ? 'macos' : 'windows' });
   await page.goto('/');
@@ -42,6 +52,85 @@ test.beforeEach(async ({page}, info) => {
 
 const mod = info => info.project.name.startsWith('macos') ? 'Meta' : 'Control';
 const sample = 'Desk rebuild\n\nTry the smaller enclosure.\nMove the power connector to the back.\nLeave enough clearance for the cable.\n\nMeasure the shelf before printing.';
+
+test('startup toggle reflects the OS, survives reload and recovers from errors', async ({page},info) => {
+  await page.keyboard.press(`${mod(info)}+,`);
+  const toggle = page.locator('#set-start-with-os');
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(page.locator('#startup-status')).toContainText('will open');
+  await page.reload();
+  await page.keyboard.press(`${mod(info)}+,`);
+  await expect(toggle).toBeChecked();
+  await page.evaluate(() => { window.testState.fail = 'set_start_with_os'; });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(page.locator('#startup-status')).toContainText('Could not change');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.testState.fail = 'get_start_with_os'; });
+  await page.keyboard.press(`${mod(info)}+,`);
+  await expect(toggle).toBeDisabled();
+  await expect(page.locator('#startup-status')).toContainText('Could not read');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.testState.fail = null; window.testState.data.startWithOs = false; });
+  await page.keyboard.press(`${mod(info)}+,`);
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+});
+
+test('update checks are manual and hide stale offers after failed or current checks', async ({page},info) => {
+  await page.keyboard.press(`${mod(info)}+,`);
+  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.1');
+  const check = page.locator('#btn-check-update'), install = page.locator('#btn-install-update');
+  expect(await page.evaluate(() => window.testState.calls.some(c => c.command === 'check_for_update'))).toBe(false);
+  await expect(install).toBeHidden();
+  await check.click();
+  await expect(page.locator('#update-status')).toContainText('up to date');
+  await page.evaluate(() => { window.testState.update = {version:'0.2.2',notes:'<img src=x onerror=alert(1)> New features'}; });
+  await check.click();
+  await expect(install).toBeVisible();
+  await expect(page.locator('#update-status')).toContainText('0.2.2');
+  await expect(page.locator('#update-notes img')).toHaveCount(0);
+  await page.evaluate(() => { window.testState.fail = 'check_for_update'; });
+  await check.click();
+  await expect(install).toBeHidden();
+  await expect(page.locator('#update-status')).toContainText('Could not check');
+  await page.evaluate(() => { window.testState.fail = null; window.testState.update = null; });
+  await check.click();
+  await expect(install).toBeHidden();
+  await expect(page.locator('#update-status')).toContainText('up to date');
+});
+
+test('update installation requires a successful draft backup, retries and locks editing during restart', async ({page},info) => {
+  const editor = page.locator('#note-input');
+  await editor.fill('Unsaved draft before update');
+  await page.keyboard.press(`${mod(info)}+,`);
+  await page.evaluate(() => { window.testState.update = {version:'0.2.2',notes:'New features'}; });
+  await page.locator('#btn-check-update').click();
+  await page.evaluate(() => { window.testState.fail = 'set_setting'; });
+  await page.locator('#btn-install-update').click();
+  await expect(page.locator('#update-status')).toContainText('Draft backup is pending');
+  expect(await page.evaluate(() => window.testState.calls.some(c => c.command === 'install_update'))).toBe(false);
+  await expect(page.locator('#settings-dialog')).not.toHaveAttribute('inert','');
+  await page.evaluate(() => { window.testState.fail = 'install_update'; });
+  await page.locator('#btn-install-update').click();
+  await expect(page.locator('#update-status')).toContainText('Simulated failure');
+  await page.keyboard.press('Escape');
+  await editor.fill('Draft edited after failed update');
+  await page.keyboard.press(`${mod(info)}+,`);
+  await page.evaluate(() => { window.testState.fail = null; });
+  await page.locator('#btn-install-update').click();
+  await expect(page.locator('#update-status')).toContainText('50%');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#settings-dialog')).toBeVisible();
+  await expect(editor).toHaveAttribute('readonly','');
+  await expect(page.locator('#update-status')).toHaveText('Restarting Settle…');
+  const saved = await page.evaluate(() => JSON.parse(window.testState.installedWorkspace));
+  expect(saved.buffers[0].text).toBe('Draft edited after failed update');
+  await page.reload();
+  await expect(editor).toHaveValue('Draft edited after failed update');
+});
 
 test('editor owns the window; all ten designs preserve content and persist', async ({page},info) => {
   const editor = page.locator('#note-input');
@@ -222,6 +311,8 @@ test('design changes preserve the caret; find reveals distant matches', async ({
   await editor.fill('Title\n' + 'x'.repeat(250) + ' needle');
   await editor.evaluate(el => el.setSelectionRange(4,4));
   await page.keyboard.press(`${mod(info)}+,`);
+  await page.locator('#set-word-wrap').uncheck();
+  await expect(editor).toHaveAttribute('wrap','off');
   await page.locator('.design-option[data-value="redline"]').click();
   await expect.poll(() => page.evaluate(() => window.testState.data.settings.design)).toBe('redline');
   await page.locator('.design-option[data-value="scratch"]').click();
@@ -256,6 +347,10 @@ test('syntax autodetect, manual overrides and per-tab preferences survive reload
   await page.locator('.buffer-tab').first().click();
   await expect(selector).toHaveValue('plaintext');
   await expect(editor).toHaveValue(code);
+  await page.keyboard.press(`${mod(info)}+,`);
+  await page.locator('#set-word-wrap').uncheck();
+  await expect(editor).toHaveAttribute('wrap','off');
+  await page.keyboard.press('Escape');
   await selector.selectOption('javascript');
   await editor.fill('const distant = "' + 'x'.repeat(250) + '";\n'.repeat(60) + 'return distant;');
   await editor.evaluate(el => { el.scrollTop = el.scrollHeight; el.scrollLeft = 300; el.dispatchEvent(new Event('scroll')); });
@@ -270,6 +365,73 @@ test('syntax autodetect, manual overrides and per-tab preferences survive reload
   await expect(page.locator('html')).toHaveAttribute('data-language','markdown');
   await expect(editor).toHaveValue('# A Markdown heading');
   await expect(editor).toBeFocused();
+});
+
+test('word wrap defaults on, aligns highlighted lines in every design and persists', async ({page},info) => {
+  const editor = page.locator('#note-input'), toggle = page.locator('#set-word-wrap');
+  const text = 'const message = "' + 'long words '.repeat(30) + '";\nconst token = "' + 'x'.repeat(300) + '";\nreturn message;';
+  await page.locator('#syntax-select').selectOption('javascript');
+  await editor.fill(text);
+  await expect(editor).toHaveAttribute('wrap','soft');
+  await page.keyboard.press(`${mod(info)}+,`);
+  await expect(toggle).toBeChecked();
+  await page.keyboard.press('Escape');
+  const designs = ['kiln','blackbox','optic','phosphor','sidecar','cobalt','scratch','redline','frost','tape'];
+  for (const enabled of [true,false]) {
+    if (!enabled) {
+      await editor.focus();
+      await editor.evaluate(el => el.setSelectionRange(8,15));
+      await page.keyboard.press(`${mod(info)}+,`);
+      await toggle.uncheck();
+      await expect(editor).toHaveAttribute('wrap','off');
+      await page.keyboard.press('Escape');
+      expect(await editor.evaluate(el => [el.selectionStart,el.selectionEnd])).toEqual([8,15]);
+    }
+    for (const design of designs) {
+      await page.evaluate(design => { document.documentElement.dataset.design = design; window.dispatchEvent(new Event('settle:design-changed')); },design);
+      await expect(editor).toHaveValue(text);
+      await expect(editor).toHaveAttribute('wrap',enabled ? 'soft' : 'off');
+      await expect.poll(() => editor.evaluate(el => el.scrollWidth > el.clientWidth + 1)).toBe(!enabled);
+      const lineHeight = await editor.evaluate(el => parseFloat(getComputedStyle(el).lineHeight));
+      const firstNumber = page.locator('#line-number-content span').first();
+      if (enabled) expect(await firstNumber.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(lineHeight * 2);
+      else expect(await firstNumber.evaluate(el => el.getBoundingClientRect().height)).toBeCloseTo(lineHeight,0);
+      // The highlighted third line must start at the same height as its gutter,
+      // after both a paragraph and a long unbroken token have wrapped.
+      await expect.poll(() => page.evaluate(() => {
+        const token = [...document.querySelectorAll('#syntax-content .hljs-keyword')].find(el => el.textContent === 'return');
+        const number = document.querySelector('#line-number-content').children[2];
+        const leading = parseFloat(getComputedStyle(document.getElementById('note-input')).lineHeight);
+        return Math.abs(token.getBoundingClientRect().top - number.getBoundingClientRect().top) / leading;
+      })).toBeLessThan(.5);
+    }
+  }
+  await page.reload();
+  await expect(editor).toHaveAttribute('wrap','off');
+  await expect(editor).toHaveValue(text);
+  await page.keyboard.press(`${mod(info)}+n`);
+  await page.locator('#syntax-select').selectOption('markdown');
+  await editor.fill('# Heading\n' + 'Markdown words '.repeat(50));
+  await expect(editor).toHaveAttribute('wrap','off');
+  await page.locator('#btn-markdown-preview').click();
+  await page.keyboard.press(`${mod(info)}+,`);
+  await expect(toggle).not.toBeChecked();
+  await page.evaluate(() => { window.testState.fail = 'set_setting'; });
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(editor).toHaveAttribute('wrap','off');
+  await page.evaluate(() => { window.testState.fail = null; });
+  await toggle.check();
+  await expect(editor).toHaveAttribute('wrap','soft');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#markdown-preview')).toBeVisible();
+  await page.locator('#btn-markdown-preview').click();
+  await expect.poll(() => editor.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThan(2);
+  await page.reload();
+  await expect(editor).toHaveAttribute('wrap','soft');
+  await page.locator('.buffer-tab').first().click();
+  await expect(editor).toHaveValue(text);
+  await expect(editor).toHaveAttribute('wrap','soft');
 });
 
 test('line numbers toggle across all themes, align wrapped lines and persist', async ({page},info) => {

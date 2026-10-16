@@ -15,8 +15,8 @@ pub struct AppState {
 }
 
 #[tauri::command]
-pub fn get_runtime_info(state: State<'_, AppState>) -> serde_json::Value {
-    serde_json::json!({"platform": std::env::consts::OS, "hotkey_error": state.hotkey_error})
+pub fn get_runtime_info(app: AppHandle, state: State<'_, AppState>) -> serde_json::Value {
+    serde_json::json!({"platform": std::env::consts::OS, "version": app.package_info().version.to_string(), "hotkey_error": state.hotkey_error})
 }
 
 fn err_to_string(e: impl std::fmt::Display) -> String {
@@ -126,10 +126,13 @@ pub fn set_setting(
         "line_numbers" if !["true", "false"].contains(&value.as_str()) => {
             return Err("Line numbers must be true or false".into())
         }
+        "word_wrap" if !["true", "false"].contains(&value.as_str()) => {
+            return Err("Word wrap must be true or false".into())
+        }
         "workspace" => {
             serde_json::from_str::<serde_json::Value>(&value).map_err(err_to_string)?;
         }
-        "design" | "save_key_mode" | "global_hotkey" | "line_numbers" => {}
+        "design" | "save_key_mode" | "global_hotkey" | "line_numbers" | "word_wrap" => {}
         _ => return Err("Unknown setting".into()),
     }
     if key == "global_hotkey" {

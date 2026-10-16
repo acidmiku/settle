@@ -34,7 +34,7 @@ export function createEditor(onChange, onOptionsChange, settings) {
     title.value = split < 0 ? source : source.slice(0,split);
     input.value = redline ? split < 0 ? '' : source.slice(split + 1) : source;
     if (!redline) lastTarget = input;
-    input.wrap = !['plaintext','markdown'].includes(language) || ['scratch','optic','phosphor'].includes(document.documentElement.dataset.design) ? 'off' : 'soft';
+    input.wrap = settings.word_wrap === 'false' ? 'off' : 'soft';
     input.spellcheck = ['plaintext','markdown'].includes(language);
     layer.style.whiteSpace = input.wrap === 'off' ? 'pre' : 'pre-wrap';
     metricKey = '';
@@ -93,7 +93,7 @@ export function createEditor(onChange, onOptionsChange, settings) {
       metricKey = key;
       if (input.wrap === 'off') heights = lines.map(() => leading);
       else {
-        // Measure logical lines so gutters stay correct even when prose wraps.
+        // Measure logical lines so gutters stay correct when text or code wraps.
         const measure = document.createElement('div');
         Object.assign(measure.style, {
           position:'fixed', visibility:'hidden', pointerEvents:'none', top:'0', left:'0',
@@ -123,7 +123,7 @@ export function createEditor(onChange, onOptionsChange, settings) {
     layer.style.height = `${input.clientHeight}px`;
     layer.scrollTop = input.scrollTop; layer.scrollLeft = input.scrollLeft;
   }
-  function designChanged() {
+  function layoutChanged() {
     const caret = selection(), scroll = [input.scrollTop,input.scrollLeft];
     layout();
     const mapped = restoreSelection(...caret);
@@ -210,8 +210,9 @@ export function createEditor(onChange, onOptionsChange, settings) {
   });
   for (const target of [input,title]) ['click','keyup','scroll','select'].forEach(event => target.addEventListener(event,updateMetrics));
   new ResizeObserver(updateMetrics).observe(input);
-  window.addEventListener('settle:design-changed',designChanged);
-  designChanged();
+  window.addEventListener('settle:design-changed',layoutChanged);
+  window.addEventListener('settle:word-wrap-changed',layoutChanged);
+  layoutChanged();
   return {input, title, setText, setBuffer, getText:() => source, focus, select, updateMetrics, revealSource};
 }
 

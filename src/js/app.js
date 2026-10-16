@@ -16,7 +16,7 @@ async function boot() {
   initWindowChrome(runtime.platform);
   const workspace = createWorkspace(settingsData.workspace, message => { $('buffer-state').textContent = message; });
   const { state, current, persist } = workspace;
-  let busy = false, closingAll = false;
+  let busy = false, closingAll = false, installingUpdate = false;
   const editor = createEditor(text => {
     current().text = text;
     persist();
@@ -24,7 +24,23 @@ async function boot() {
     find.refresh();
   }, options => { Object.assign(current(), options); persist(); }, settingsData);
   const find = createFind(editor);
-  const settings = createSettings(settingsData, workspace.flush);
+  const settings = createSettings(settingsData, workspace.flush, runtime, async () => {
+    if (busy) throw new Error('Wait for the current save to finish.');
+    busy = true; closingAll = true; installingUpdate = true;
+    $('app').inert = true; $('settings-dialog').inert = true;
+    editor.input.readOnly = true; editor.title.readOnly = true;
+    try {
+      persist();
+      await workspace.flushRequired();
+      await invoke('install_update');
+    } catch (error) {
+      busy = false; closingAll = false; installingUpdate = false;
+      $('app').inert = false; $('settings-dialog').inert = false;
+      editor.input.readOnly = false; editor.title.readOnly = false;
+      throw error;
+    }
+  });
+  $('settings-dialog').addEventListener('cancel', event => { if (installingUpdate) event.preventDefault(); });
   const notes = createNotes(openNote, id => {
     for (const buffer of state.buffers) if (buffer.noteId === id) { buffer.noteId = null; buffer.original = ''; }
     persist(); renderTabs();
@@ -177,6 +193,7 @@ async function boot() {
   document.querySelectorAll('[data-action="settings"]').forEach(button => button.onclick = settings.open);
   document.querySelectorAll('[data-action="history"]').forEach(button => button.onclick = notes.toggle);
   window.addEventListener('keydown', e => {
+    if (installingUpdate) { e.preventDefault(); return; }
     if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
     if (document.querySelector('dialog[open]')) return; // Native dialog handles Esc and focus trapping.
     const mod = isMod(e), key = e.key.toLowerCase();

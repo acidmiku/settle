@@ -25,11 +25,13 @@ The **Syntax** selector in the footer starts in Auto mode and detects the langua
 
 Supported syntax includes JavaScript, TypeScript, JSON, HTML/XML, CSS, Python, Rust, PowerShell, Bash, SQL, YAML, INI/TOML, C, C++, C#, Java, Kotlin, Swift, Go, and Markdown. The selector contains the full list.
 
-### Line numbers and find
+### Word wrap, line numbers, and find
+
+**Word wrap** is enabled by default for every design and syntax. Toggle it in **Settings → Writing** to switch between wrapped lines and horizontal scrolling. The preference applies to all tabs and survives restart; wrapping never adds line breaks to your saved text.
 
 Toggle **Line numbers** in the footer in any design. The preference applies across themes and survives restart. Wrapped paragraphs keep one number per logical line.
 
-Use `Ctrl/Cmd+F` to find text in the current tab, then `F3` or `Shift+F3` to move through matches. Code uses horizontal scrolling; prose wraps in designs that support it.
+Use `Ctrl/Cmd+F` to find text in the current tab, then `F3` or `Shift+F3` to move through matches.
 
 ### Markdown preview
 
@@ -67,7 +69,7 @@ Choose a design in **Settings → Design**. Each changes the palette, typography
 | Frost | Cool paper, frosted chrome, cyan accents. |
 | Tape | A wide, shallow yellow writing surface with black chrome. |
 
-Sidecar and Tape resize the window to fit their layouts. Switching away restores the previous window bounds. Scratch, Optic, and Phosphor keep text on unwrapped lines; other designs wrap prose. Redline uses the full editor for code and Markdown.
+Sidecar and Tape resize the window to fit their layouts. Switching away restores the previous window bounds. Redline uses the full editor for code and Markdown.
 
 ## Keyboard shortcuts
 
@@ -92,6 +94,14 @@ Enable **Enter to save** in Settings to use Enter for saving and Shift+Enter for
 
 On macOS, Settle uses native window controls and an Edit menu, reopens from the Dock, and preserves the system `Cmd+H` shortcut.
 
+## Updates and startup
+
+In **Settings → Updates**, click **Check for updates** to check the latest stable release. If a newer version exists, **Install update** downloads it, verifies its signature, and restarts Settle. Drafts must finish backing up before installation starts; a failed backup or download leaves your text available for retry. Update checks only run when requested.
+
+Enable **Settings → System → Start with OS** to open Settle when you sign in. It defaults to off and uses Windows startup registration or a macOS Launch Agent. Opening the app again brings its existing window forward.
+
+On macOS, copy Settle into Applications before enabling startup or using in-app updates. Version 0.2.0 needs one manual upgrade to 0.2.1 to gain the updater.
+
 ## Your data
 
 Notes, drafts, and settings are stored locally. Drafts are cached as you type and backed up to SQLite. Writing, highlighting, preview, and search work offline.
@@ -105,7 +115,7 @@ Notes, drafts, and settings are stored locally. Drafts are cached as you type an
 
 ## Development
 
-Install stable Rust (1.88 or newer) and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Windows needs the MSVC build tools and WebView2; macOS needs Xcode Command Line Tools. Run these commands from the repository root:
+Install stable Rust (1.90 or newer) and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Windows needs the MSVC build tools and WebView2; macOS needs Xcode Command Line Tools. Run these commands from the repository root:
 
 ```sh
 cargo install tauri-cli --locked
@@ -122,6 +132,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 npm ci
 npx playwright install chromium webkit
 npm test
+npm run test:release
 ```
 
 Rust tests exercise real SQLite databases, migrations, search, and exports. Playwright tests exercise Chromium and WebKit with a mock desktop bridge, covering editing, draft recovery, syntax, preview, shortcuts, tab actions, save failures, and all ten designs. CI runs these checks on Windows and macOS; browser tests do not replace native app testing.
@@ -160,4 +171,8 @@ APPLE_SIGNING_IDENTITY=- cargo tauri build --ci --target universal-apple-darwin 
 
 Output: `src-tauri/target/universal-apple-darwin/release/bundle/dmg/`. The configured minimum macOS version is 12.3.
 
-The installer workflow builds both platforms on manual dispatch or a `v*` tag. Tagged builds attach the installers to a GitHub release. macOS builds currently use ad-hoc signing and are not notarized; distribution with Developer ID signing and notarization requires Apple credentials and the corresponding workflow configuration. See the [Tauri macOS signing guide](https://v2.tauri.app/distribute/sign/macos/).
+The installer workflow builds both platforms on manual dispatch or a `v*` tag. Signed builds need `TAURI_SIGNING_PRIVATE_KEY` (a key path or contents) and its optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in the environment. For unsigned local installers, override `bundle.createUpdaterArtifacts` to `false` in a local Tauri config.
+
+GitHub Actions reads the signing key from the repository secret `TAURI_SIGNING_PRIVATE_KEY`. Before tagging, match the Cargo/Tauri versions and add `releases/vX.Y.Z.md`. Tagged builds publish installers, signatures, a universal Mac update archive, and `latest.json`. The manifest is generated only after both platforms succeed. Keep the private signing key backed up outside the repository: future updates must use the same key.
+
+macOS builds currently use ad-hoc signing and are not notarized; distribution with Developer ID signing and notarization requires Apple credentials and the corresponding workflow configuration. Updater signatures are separate from Apple code signing. See the [Tauri macOS signing guide](https://v2.tauri.app/distribute/sign/macos/).

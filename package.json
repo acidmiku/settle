@@ -6,7 +6,8 @@
     "vendor": "node scripts/build-vendor.mjs",
     "dev": "cargo tauri dev",
     "build": "cargo tauri build",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:release": "node --test tests/release-manifest.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

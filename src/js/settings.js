@@ -1,6 +1,7 @@
 import { invoke } from './api.js';
 import { $, escapeHtml, openDialog } from './utils.js';
 import { toast } from './toast.js';
+import { createSystemSettings } from './system-settings.js';
 
 export const DESIGNS = [
   ['kiln','Kiln','#242422','#e5e3dd','#ff681b'],
@@ -14,8 +15,9 @@ export const DESIGNS = [
   ['frost','Frost','#f2f5f8','#252e38','#0087a6'],
   ['tape','Tape','#ebf23e','#181b08','#181b08'],
 ];
-export function createSettings(settings, flushWorkspace) {
+export function createSettings(settings, flushWorkspace, runtime, installUpdate) {
   const dialog = $('settings-dialog');
+  const systemSettings = createSystemSettings(runtime, installUpdate);
   let savingDesign = false;
   $('design-picker').innerHTML = DESIGNS.map(([id,name,bg,fg,accent],i) => `<button class="design-option" data-value="${id}" aria-label="${name}${id === 'scratch' ? ' (default)' : ''}" aria-pressed="false" style="--preview-bg:${bg};--preview-fg:${fg};--preview-accent:${accent}"><span class="design-preview" aria-hidden="true"><i></i><i></i><i></i></span><span class="design-name">${escapeHtml(name)}<small>${String(i+1).padStart(2,'0')}</small></span></button>`).join('');
   function applyDesign(id) {
@@ -38,6 +40,19 @@ export function createSettings(settings, flushWorkspace) {
     try { await invoke('set_setting', { key: 'design', value }); settings.design = value; }
     catch (error) { applyDesign(previous); toast(`Design could not be saved: ${error}`, { kind: 'error' }); }
     finally { savingDesign = false; }
+  });
+  $('set-word-wrap').checked = settings.word_wrap !== 'false';
+  $('set-word-wrap').addEventListener('change', async () => {
+    const control = $('set-word-wrap'), value = String(control.checked);
+    control.disabled = true;
+    try {
+      await invoke('set_setting', { key: 'word_wrap', value });
+      settings.word_wrap = value;
+      window.dispatchEvent(new CustomEvent('settle:word-wrap-changed'));
+    } catch (error) {
+      control.checked = settings.word_wrap !== 'false';
+      toast(`Word wrap could not be saved: ${error}`, { kind: 'error' });
+    } finally { control.disabled = false; }
   });
   $('set-enter-save').addEventListener('change', async () => {
     const control = $('set-enter-save'), value = control.checked ? 'enter' : 'shift_enter';
@@ -66,6 +81,7 @@ export function createSettings(settings, flushWorkspace) {
   }
   async function open() {
     openDialog(dialog, dialog.querySelector('[aria-pressed="true"]'));
+    systemSettings.refreshStartup();
     try { const info = await invoke('get_db_info'); $('db-info').textContent = `${info.path} · ${(info.size_bytes / 1024).toFixed(1)} KB`; }
     catch (e) { $('db-info').textContent = `Database information unavailable: ${e}`; }
   }
