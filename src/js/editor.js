@@ -87,9 +87,8 @@ export function createEditor(onChange, onOptionsChange, settings) {
   function changed() {
     source = redline ? title.value + (input.value || source.includes('\n') ? '\n' + input.value : '') : input.value;
     metricKey = '';
-    // Show fresh text immediately while detection waits for a pause in typing.
-    $('syntax-content').textContent = input.value + '\n';
-    updateMetrics(); onChange(source);
+    // Repaint in the current language immediately; only autodetection waits for a pause.
+    paint(); onChange(source);
     clearTimeout(highlightTimer);
     highlightTimer = setTimeout(refreshSyntax, 100);
   }

@@ -297,16 +297,16 @@ test('startup toggle reflects the OS, survives reload and recovers from errors',
 
 test('update checks are manual and hide stale offers after failed or current checks', async ({page},info) => {
   await page.keyboard.press(`${mod(info)}+,`);
-  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.3');
+  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.4');
   const check = page.locator('#btn-check-update'), install = page.locator('#btn-install-update');
   expect(await page.evaluate(() => window.testState.calls.some(c => c.command === 'check_for_update'))).toBe(false);
   await expect(install).toBeHidden();
   await check.click();
   await expect(page.locator('#update-status')).toContainText('up to date');
-  await page.evaluate(() => { window.testState.update = {version:'0.2.4',notes:'<img src=x onerror=alert(1)> New features'}; });
+  await page.evaluate(() => { window.testState.update = {version:'0.2.5',notes:'<img src=x onerror=alert(1)> New features'}; });
   await check.click();
   await expect(install).toBeVisible();
-  await expect(page.locator('#update-status')).toContainText('0.2.4');
+  await expect(page.locator('#update-status')).toContainText('0.2.5');
   await expect(page.locator('#update-notes img')).toHaveCount(0);
   await page.evaluate(() => { window.testState.fail = 'check_for_update'; });
   await check.click();
@@ -322,7 +322,7 @@ test('update installation requires a successful draft backup, retries and locks 
   const editor = page.locator('#note-input');
   await editor.fill('Unsaved draft before update');
   await page.keyboard.press(`${mod(info)}+,`);
-  await page.evaluate(() => { window.testState.update = {version:'0.2.4',notes:'New features'}; });
+  await page.evaluate(() => { window.testState.update = {version:'0.2.5',notes:'New features'}; });
   await page.locator('#btn-check-update').click();
   await page.evaluate(() => { window.testState.fail = 'set_setting'; });
   await page.locator('#btn-install-update').click();
@@ -586,6 +586,54 @@ test('syntax autodetect, manual overrides and per-tab preferences survive reload
   await expect(editor).toHaveValue('# A Markdown heading');
   await expect(editor).toBeFocused();
 });
+
+for (const syntax of ['go','auto']) {
+  test(`syntax colors stay visible during edits (${syntax})`, async ({page}) => {
+    const editor = page.locator('#note-input');
+    const code = 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello")\n}\n';
+    await editor.fill(code);
+    await page.locator('#syntax-select').selectOption(syntax);
+    await expect(page.locator('html')).toHaveAttribute('data-language','go');
+    await editor.evaluate(el => {
+      const content = document.getElementById('syntax-content');
+      const keyword = () => [...content.querySelectorAll('.hljs-keyword')].find(token => token.textContent === 'package');
+      window.syntaxEdits = {color:getComputedStyle(keyword()).color, frames:[]};
+      // Inspect each input event before debounce timers can hide a transient loss of color.
+      el.addEventListener('input', () => {
+        const token = keyword();
+        window.syntaxEdits.frames.push({
+          color:token ? getComputedStyle(token).color : null,
+          matchesText:content.textContent === el.value + '\n',
+          visible:el.classList.contains('highlighted') && !document.getElementById('syntax-layer').hidden,
+        });
+      });
+      el.focus();
+      const caret = el.value.indexOf('Hello') + 'Hello'.length;
+      el.setSelectionRange(caret,caret);
+    });
+    await editor.pressSequentially(' there');
+    await editor.press('Backspace');
+    await page.keyboard.insertText('<>&');
+    const beforeReplacement = await editor.inputValue();
+    await editor.evaluate(el => {
+      const start = el.value.indexOf('Hello');
+      el.setSelectionRange(start,start + 'Hello'.length);
+    });
+    await page.keyboard.insertText('World');
+    await expect(editor).toHaveValue(beforeReplacement.replace('Hello','World'));
+    await editor.press('ControlOrMeta+z');
+    await expect(editor).toHaveValue(beforeReplacement);
+    await editor.dispatchEvent('compositionstart');
+    await page.keyboard.insertText('こんにちは');
+    await editor.dispatchEvent('compositionend');
+    const edits = await page.evaluate(() => window.syntaxEdits);
+    expect(edits.frames.length).toBeGreaterThan(8);
+    for (const frame of edits.frames) {
+      expect(frame).toEqual({color:edits.color,matchesText:true,visible:true});
+    }
+    await expect(page.locator('#syntax-content')).toHaveText((await editor.inputValue()) + '\n', {useInnerText:false});
+  });
+}
 
 test('word wrap defaults on, aligns highlighted lines in every design and persists', async ({page},info) => {
   const editor = page.locator('#note-input'), toggle = page.locator('#set-word-wrap');
