@@ -593,6 +593,9 @@ for (const syntax of ['go','auto']) {
     const code = 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello")\n}\n';
     await editor.fill(code);
     await page.locator('#syntax-select').selectOption(syntax);
+    // Load the fixture as an existing draft so native Undo cannot remove the setup text.
+    await page.reload();
+    await expect(editor).toHaveValue(code);
     await expect(page.locator('html')).toHaveAttribute('data-language','go');
     await editor.evaluate(el => {
       const content = document.getElementById('syntax-content');
@@ -620,9 +623,15 @@ for (const syntax of ['go','auto']) {
       el.setSelectionRange(start,start + 'Hello'.length);
     });
     await page.keyboard.insertText('World');
-    await expect(editor).toHaveValue(beforeReplacement.replace('Hello','World'));
+    const replaced = beforeReplacement.replace('Hello','World');
+    await expect(editor).toHaveValue(replaced);
     await editor.press('ControlOrMeta+z');
-    await expect(editor).toHaveValue(beforeReplacement);
+    // Native editors group these edits differently; Undo must change text and keep its colors.
+    await expect(editor).not.toHaveValue(replaced);
+    await editor.evaluate(el => {
+      const caret = el.value.indexOf('Hello') + 'Hello'.length;
+      el.setSelectionRange(caret,caret);
+    });
     await editor.dispatchEvent('compositionstart');
     await page.keyboard.insertText('こんにちは');
     await editor.dispatchEvent('compositionend');
