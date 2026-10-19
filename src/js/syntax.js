@@ -21,6 +21,10 @@ export function highlight(text, language) {
   try { return hljs.highlight(text, {language, ignoreIllegals:true}).value; }
   catch { return escapeHtml(text); }
 }
+// Wrap each space and tab outside tags; the marker is drawn over the real character, so metrics stay native.
+export function markWhitespace(html) {
+  return html.replace(/(<[^>]*>)|[ \t]/g, (match, tag) => tag || (match === '\t' ? '<span class="ws-tab">\t</span>' : '<span class="ws-space"> </span>'));
+}
 export function renderMarkdown(text, target) {
   target.innerHTML = DOMPurify.sanitize(marked.parse(text, {gfm:true, async:false}), {
     ALLOWED_TAGS:['p','br','hr','h1','h2','h3','h4','h5','h6','strong','em','del','s','blockquote','pre','code','ul','ol','li','a','img','table','thead','tbody','tr','th','td','input','details','summary'],

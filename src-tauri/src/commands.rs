@@ -219,10 +219,20 @@ pub fn set_setting(
         "word_wrap" if !["true", "false"].contains(&value.as_str()) => {
             return Err("Word wrap must be true or false".into())
         }
+        "tab_size" if !["2", "4", "8"].contains(&value.as_str()) => {
+            return Err("Tab size must be 2, 4 or 8".into())
+        }
+        "indent_spaces" if !["true", "false"].contains(&value.as_str()) => {
+            return Err("Indent using spaces must be true or false".into())
+        }
+        "show_whitespace" if !["true", "false"].contains(&value.as_str()) => {
+            return Err("Show tabs and spaces must be true or false".into())
+        }
         "workspace" => {
             serde_json::from_str::<serde_json::Value>(&value).map_err(err_to_string)?;
         }
-        "design" | "save_key_mode" | "global_hotkey" | "line_numbers" | "word_wrap" => {}
+        "design" | "save_key_mode" | "global_hotkey" | "line_numbers" | "word_wrap"
+        | "tab_size" | "indent_spaces" | "show_whitespace" => {}
         _ => return Err("Unknown setting".into()),
     }
     if key == "global_hotkey" {

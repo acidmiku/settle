@@ -78,6 +78,7 @@
           <button id="btn-line-numbers" class="footer-tool" aria-pressed="true" title="Toggle line numbers">Line numbers</button>
           <button id="btn-markdown-preview" class="footer-tool" aria-pressed="false" hidden>Preview Markdown</button>
           <span id="note-save-status" class="note-save-status" data-saved="false" role="status">Not saved</span>
+          <button id="btn-indent" class="footer-tool indent-button" aria-haspopup="menu" aria-expanded="false" aria-controls="indent-menu" title="Indentation: Tab indents, Shift+Tab outdents"><span id="indent-label">Tab size: 4</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
         </div>
         <button id="btn-save" class="action action-save"><kbd data-shortcut="S">Ctrl S</kbd><span id="save-label">Save</span></button>
         <button id="btn-copy" class="action"><kbd data-shortcut="Enter">Ctrl Enter</kbd><span>Copy + clear</span></button>
@@ -136,6 +137,7 @@
       <button role="menuitem" data-tab-action="discard-all">Close all without saving…</button>
     </div>
     <div id="notes-menu" class="tab-menu" role="menu" aria-label="Library actions" hidden></div>
+    <div id="indent-menu" class="tab-menu indent-menu" role="menu" aria-label="Indentation" hidden></div>
     <script type="module" src="./js/app.js"></script>
   </body>
 </html>

@@ -170,6 +170,7 @@ test('browser preview shows the library beside rich text and works at compact wi
   await page.screenshot({path:'.qa/screenshots/library-preview.png'});
   await page.setViewportSize({width:620,height:420});
   await expect(page.locator('#note-save-status')).toBeInViewport();
+  await expect(page.locator('#btn-indent')).toBeInViewport();
   await expect(page.locator('#new-folder')).toBeInViewport();
   await expect(page.locator('#close-history')).toBeInViewport();
   await page.locator('#close-history').click();
@@ -297,7 +298,7 @@ test('startup toggle reflects the OS, survives reload and recovers from errors',
 
 test('update checks are manual and hide stale offers after failed or current checks', async ({page},info) => {
   await page.keyboard.press(`${mod(info)}+,`);
-  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.4');
+  await expect(page.locator('#app-version')).toHaveText('Settle 0.2.5');
   const check = page.locator('#btn-check-update'), install = page.locator('#btn-install-update');
   expect(await page.evaluate(() => window.testState.calls.some(c => c.command === 'check_for_update'))).toBe(false);
   await expect(install).toBeHidden();
@@ -733,6 +734,123 @@ test('line numbers toggle across all themes, align wrapped lines and persist', a
   await page.reload();
   await expect(page.locator('#line-numbers')).toBeHidden();
   await expect(page.locator('#btn-line-numbers')).toHaveAttribute('aria-pressed','false');
+});
+
+test('Tab indents source lines with native undo; indent controls persist', async ({page}) => {
+  const editor = page.locator('#note-input'), button = page.locator('#btn-indent'), menu = page.locator('#indent-menu');
+  const selection = () => editor.evaluate(el => [el.selectionStart,el.selectionEnd]);
+  const text = 'alpha\nbeta\n\ngamma';
+  await page.locator('#syntax-select').selectOption('plaintext');
+  await editor.fill(text);
+  // Load the fixture as an existing draft so native Undo cannot remove the setup text.
+  await page.reload();
+  await expect(editor).toHaveValue(text);
+  await editor.evaluate(el => { el.focus(); el.setSelectionRange(0,0); });
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveValue('\t' + text);
+  expect(await selection()).toEqual([1,1]);
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor).toHaveValue(text);
+  await editor.evaluate(el => el.setSelectionRange(2,15));
+  await page.keyboard.press('Tab');
+  await expect(editor).toHaveValue('\talpha\n\tbeta\n\n\tgamma');
+  expect(await selection()).toEqual([3,18]);
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor).toHaveValue(text);
+  expect(await selection()).toEqual([2,15]);
+  await page.keyboard.press('Tab');
+  await editor.press('ControlOrMeta+z');
+  await expect(editor).toHaveValue(text);
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem('settle.workspace.v3'))).buffers[0].text).toBe(text);
+
+  await expect(button).toHaveText('Tab size: 4');
+  await button.click();
+  await expect(menu).toBeVisible();
+  await expect(button).toHaveAttribute('aria-expanded','true');
+  await expect(page.getByRole('menuitemradio',{name:'Tab size: 4'})).toHaveAttribute('aria-checked','true');
+  await page.getByRole('menuitemcheckbox',{name:'Indent using spaces'}).click();
+  await expect(menu).toBeHidden();
+  await expect(button).toHaveText('Spaces: 4');
+  await expect(button).toHaveAttribute('aria-expanded','false');
+  await expect(editor).toBeFocused();
+  await button.click();
+  await expect(page.getByRole('menuitemcheckbox',{name:'Indent using spaces'})).toHaveAttribute('aria-checked','true');
+  await page.getByRole('menuitemradio',{name:'Tab size: 2'}).click();
+  await expect(button).toHaveText('Spaces: 2');
+  expect(await page.evaluate(() => ['note-input','syntax-layer'].map(id => getComputedStyle(document.getElementById(id)).tabSize))).toEqual(['2','2']);
+  await editor.evaluate(el => el.setSelectionRange(1,1));
+  await page.keyboard.press('Tab');
+  await expect(editor).toHaveValue('a lpha\nbeta\n\ngamma');
+  await editor.evaluate(el => el.setSelectionRange(0,10));
+  await page.keyboard.press('Tab');
+  await expect(editor).toHaveValue('  a lpha\n  beta\n\ngamma');
+  await page.keyboard.press('Shift+Tab');
+  await expect(editor).toHaveValue('a lpha\nbeta\n\ngamma');
+  expect(await page.evaluate(() => [window.testState.data.settings.tab_size,window.testState.data.settings.indent_spaces])).toEqual(['2','true']);
+
+  await button.click();
+  await expect(menu).toBeVisible();
+  await button.click();
+  await expect(menu).toBeHidden();
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitemcheckbox',{name:'Indent using spaces'})).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('menuitemradio',{name:'Tab size: 8'})).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(button).toBeFocused();
+  await page.evaluate(() => { window.testState.fail = 'set_setting'; });
+  await button.click();
+  await page.getByRole('menuitemradio',{name:'Tab size: 8'}).click();
+  await expect(page.locator('.toast').last()).toContainText('Indentation could not be saved');
+  await expect(button).toHaveText('Spaces: 2');
+  await page.evaluate(() => { window.testState.fail = null; });
+  await page.reload();
+  await expect(button).toHaveText('Spaces: 2');
+  expect(await editor.evaluate(el => getComputedStyle(el).tabSize)).toBe('2');
+});
+
+test('show tabs and spaces marks whitespace in every design without moving text', async ({page}) => {
+  const editor = page.locator('#note-input'), layer = page.locator('#syntax-layer'), content = page.locator('#syntax-content');
+  const text = 'word '.repeat(60) + '\nsecond  line\n\tthird';
+  await page.locator('#syntax-select').selectOption('plaintext');
+  await editor.fill(text);
+  await expect(layer).toBeHidden();
+  await page.locator('#btn-indent').click();
+  await expect(page.getByRole('menuitemcheckbox',{name:'Show tabs and spaces'})).toHaveAttribute('aria-checked','false');
+  await page.getByRole('menuitemcheckbox',{name:'Show tabs and spaces'}).click();
+  await expect(layer).toBeVisible();
+  await expect(editor).toHaveClass(/highlighted/);
+  await expect(content.locator('.ws-space')).toHaveCount(62);
+  await expect(content.locator('.ws-tab')).toHaveCount(1);
+  await expect(content).toHaveText(text + '\n', {useInnerText:false});
+  expect(await page.evaluate(() => window.testState.data.settings.show_whitespace)).toBe('true');
+  for (const design of ['kiln','blackbox','optic','phosphor','sidecar','cobalt','scratch','redline','frost','tape']) {
+    await page.evaluate(design => { document.documentElement.dataset.design = design; window.dispatchEvent(new Event('settle:design-changed')); },design);
+    // The tab on the last logical line must sit beside its gutter number after the first line wraps.
+    await expect.poll(() => page.evaluate(() => {
+      const numbers = document.querySelector('#line-number-content').children;
+      const tab = document.querySelector('#syntax-content .ws-tab');
+      const leading = parseFloat(getComputedStyle(document.getElementById('note-input')).lineHeight);
+      return Math.abs(tab.getBoundingClientRect().top - numbers[numbers.length - 1].getBoundingClientRect().top) / leading;
+    })).toBeLessThan(.5);
+  }
+  await page.locator('#syntax-select').selectOption('javascript');
+  await editor.fill('const answer = 42;\n\treturn answer;');
+  await expect(content.locator('.hljs-keyword').first()).toHaveText('const');
+  await expect(content.locator('.ws-tab')).toHaveCount(1);
+  await expect(content).toHaveText('const answer = 42;\n\treturn answer;\n', {useInnerText:false});
+  await page.reload();
+  await expect(content.locator('.ws-tab')).toHaveCount(1);
+  await page.locator('#btn-indent').click();
+  await page.getByRole('menuitemcheckbox',{name:'Show tabs and spaces'}).click();
+  await expect(content.locator('.ws-space, .ws-tab')).toHaveCount(0);
+  await expect(content.locator('.hljs-keyword').first()).toHaveText('const');
+  await page.locator('#syntax-select').selectOption('plaintext');
+  await expect(layer).toBeHidden();
+  await expect(editor).not.toHaveClass(/highlighted/);
 });
 
 test('Markdown preview renders safely, preserves source and works with save and find', async ({page},info) => {

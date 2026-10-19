@@ -39,6 +39,12 @@ Toggle **Line numbers** in the footer in any design. The preference applies acro
 
 Use `Ctrl/Cmd+F` to find text in the current tab, then `F3` or `Shift+F3` to move through matches.
 
+### Indentation
+
+`Tab` indents in the source editor and `Shift+Tab` outdents. With several lines selected, both act on every selected line. Native Undo reverses each indent.
+
+The **Tab size** control at the right of the footer sets the tab width to 2, 4, or 8. Turn on **Indent using spaces** in the same menu to insert spaces instead of tab characters. **Show tabs and spaces** marks each tab with an arrow and each space with a dot in the source editor without changing your text. These choices apply to all tabs and survive restart.
+
 ### Markdown preview
 
 When Markdown is detected or selected, **Preview Markdown** appears in the footer. Toggle it to replace the editor with rendered headings, lists, tables, task checkboxes, and highlighted code blocks. **Edit Markdown** returns to the source.

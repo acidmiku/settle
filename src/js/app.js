@@ -8,6 +8,7 @@ import { createNotes } from './notes.js';
 import { createSearch } from './search.js';
 import { initWindowChrome } from './chrome.js';
 import { createTabMenu } from './tab-menu.js';
+import { createIndent } from './indent.js';
 
 async function boot() {
   $('note-input').readOnly = true;
@@ -24,6 +25,7 @@ async function boot() {
     find.refresh();
   }, options => { Object.assign(current(), options); persist(); }, settingsData);
   const find = createFind(editor);
+  createIndent(editor, settingsData);
   const settings = createSettings(settingsData, workspace.flush, runtime, async () => {
     if (busy) throw new Error('Wait for the current save to finish.');
     busy = true; closingAll = true; installingUpdate = true;

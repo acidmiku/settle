@@ -37,7 +37,7 @@ svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.5;
 .workspace { display:flex; flex:1; min-height:0; position:relative; }
 .editor { min-width:0; flex:1; display:flex; flex-direction:column; background:var(--bg); }
 .editor-body { position:relative; flex:1; min-height:0; display:flex; overflow:hidden; }
-#note-input { border:0; outline:none; resize:none; border-radius:0; flex:1; min-width:0; width:100%; height:100%; margin:0; padding:var(--editor-pad); color:var(--text); background:transparent; font:var(--writing-size)/var(--leading) var(--writing); letter-spacing:0; tab-size:4; caret-color:var(--accent); position:relative; z-index:1; scrollbar-color:var(--line) transparent; }
+#note-input { border:0; outline:none; resize:none; border-radius:0; flex:1; min-width:0; width:100%; height:100%; margin:0; padding:var(--editor-pad); color:var(--text); background:transparent; font:var(--writing-size)/var(--leading) var(--writing); letter-spacing:0; tab-size:var(--tab-size,4); caret-color:var(--accent); position:relative; z-index:1; scrollbar-color:var(--line) transparent; }
 #note-input::placeholder { color:var(--muted); opacity:.65; }
 .line-numbers { width:56px; flex-shrink:0; border-right:1px solid var(--line); overflow:hidden; color:var(--muted); font:16px/var(--leading) var(--mono); padding-top:var(--editor-pad); text-align:right; user-select:none; }
 #line-number-content { padding-right:15px; will-change:transform; }

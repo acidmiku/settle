@@ -1,24 +1,31 @@
 // Shared positioning and keyboard navigation for library menus.
 export function createContextMenu(menu) {
-  let returnFocus;
+  let returnFocus, expanded;
   function close(restore = true) {
     if (menu.hidden) return;
     menu.hidden = true;
+    expanded?.setAttribute('aria-expanded', 'false'); expanded = null;
     if (restore && returnFocus?.isConnected) returnFocus.focus();
   }
   function open(event, items, anchor = event.currentTarget) {
     event.preventDefault(); event.stopPropagation();
     returnFocus = document.activeElement;
     menu.replaceChildren(...items.map(item => {
+      if (item.separator) { const line = document.createElement('div'); line.setAttribute('role', 'separator'); return line; }
       const button = document.createElement('button');
-      button.setAttribute('role', 'menuitem'); button.textContent = item.label;
+      button.setAttribute('role', item.checked === undefined ? 'menuitem' : item.radio ? 'menuitemradio' : 'menuitemcheckbox');
+      if (item.checked !== undefined) button.setAttribute('aria-checked', String(item.checked));
+      button.textContent = item.label;
       button.onclick = () => { close(); item.action(); };
       return button;
     }));
     menu.hidden = false;
+    if (anchor.hasAttribute('aria-expanded')) { expanded = anchor; anchor.setAttribute('aria-expanded', 'true'); }
     const rect = anchor.getBoundingClientRect();
     const pointer = event.type === 'contextmenu' && event.button === 2;
-    const x = pointer ? event.clientX : rect.left, y = pointer ? event.clientY : rect.bottom;
+    // Anchored menus open upward or leftward when they would not fit past the anchor.
+    const x = pointer ? event.clientX : rect.left + menu.offsetWidth > innerWidth - 4 ? rect.right - menu.offsetWidth : rect.left;
+    const y = pointer ? event.clientY : rect.bottom + menu.offsetHeight > innerHeight - 4 ? rect.top - menu.offsetHeight : rect.bottom;
     menu.style.left = `${Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4))}px`;
     menu.style.top = `${Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4))}px`;
     menu.querySelector('button')?.focus();

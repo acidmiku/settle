@@ -1,8 +1,12 @@
 /* Source text stays in a native textarea; the matching layer only adds color. */
 .editor-source { flex:1; min-height:0; display:flex; flex-direction:column; }
 .text-surface { position:relative; display:flex; flex:1; min-width:0; min-height:0; overflow:hidden; }
-.syntax-layer { position:absolute; inset:0 auto auto 0; margin:0; border:0; padding:var(--editor-pad); color:var(--text); font:var(--writing-size)/var(--leading) var(--writing); letter-spacing:0; tab-size:4; white-space:pre-wrap; overflow-wrap:break-word; overflow:hidden; pointer-events:none; }
+.syntax-layer { position:absolute; inset:0 auto auto 0; margin:0; border:0; padding:var(--editor-pad); color:var(--text); font:var(--writing-size)/var(--leading) var(--writing); letter-spacing:0; tab-size:var(--tab-size,4); white-space:pre-wrap; overflow-wrap:break-word; overflow:hidden; pointer-events:none; }
 .syntax-layer code { font:inherit; }
+.ws-space,.ws-tab { position:relative; }
+.ws-space::before,.ws-tab::before { position:absolute; left:0; right:0; color:var(--muted); opacity:.7; }
+.ws-space::before { content:"\00b7"; text-align:center; }
+.ws-tab::before { content:"\2192"; padding-left:2px; }
 #note-input.highlighted { color:transparent; -webkit-text-fill-color:transparent; }
 #note-input.highlighted::placeholder { -webkit-text-fill-color:var(--muted); }
 #note-input.highlighted::selection { background:#8093ad66; }
@@ -23,6 +27,12 @@
 .syntax-control option { color:var(--text); background:var(--chrome); }
 .footer-tool { padding:5px 9px; border:1px solid transparent; border-radius:4px; white-space:nowrap; }
 .footer-tool[aria-pressed="true"] { border-color:currentColor; color:var(--accent); }
+.indent-button { display:flex; align-items:center; gap:4px; padding-right:5px; }
+.indent-button svg { width:13px; height:13px; }
+.indent-button[aria-expanded="true"] { color:var(--accent); }
+.indent-menu { min-width:190px; }
+.tab-menu [aria-checked] { position:relative; padding-left:32px; }
+.tab-menu [aria-checked="true"]::before { content:"\2713"; position:absolute; left:12px; color:var(--accent); }
 [data-design="cobalt"] .footer-tools { color:#1738ee; }
 [data-design="cobalt"] .footer-tool[aria-pressed="true"] { color:#1738ee; }
 .tab-menu { position:fixed; z-index:15; min-width:245px; padding:6px; border:1px solid var(--line); border-radius:6px; background:var(--chrome); box-shadow:0 12px 35px #0005; }
@@ -53,7 +63,7 @@
 .markdown-preview blockquote { border-left:3px solid var(--syntax-title); padding:0 1em; }
 .markdown-preview a { color:var(--syntax-title); text-decoration:underline; }
 .markdown-preview code { font:.9em var(--mono); padding:2px 4px; border:1px solid var(--line); border-radius:3px; }
-.markdown-preview pre { overflow:auto; padding:16px; border:1px solid var(--line); border-radius:5px; line-height:1.6; }
+.markdown-preview pre { tab-size:var(--tab-size,4); overflow:auto; padding:16px; border:1px solid var(--line); border-radius:5px; line-height:1.6; }
 .markdown-preview pre code { border:0; padding:0; }
 .markdown-preview table { border-collapse:collapse; margin:1em 0; max-width:100%; }
 .markdown-preview th,.markdown-preview td { border:1px solid var(--line); padding:7px 12px; text-align:left; }
@@ -74,7 +84,7 @@
 .tiptap li > p { margin:0; }
 .tiptap blockquote { border-left:3px solid var(--syntax-title); padding:0 1em; margin-left:0; }
 .tiptap code { font:.9em var(--mono); padding:2px 4px; border:1px solid var(--line); border-radius:3px; }
-.tiptap pre { padding:16px; border:1px solid var(--line); border-radius:5px; line-height:1.6; white-space:pre-wrap; }
+.tiptap pre { tab-size:var(--tab-size,4); padding:16px; border:1px solid var(--line); border-radius:5px; line-height:1.6; white-space:pre-wrap; }
 .tiptap pre code { padding:0; border:0; }
 .tiptap a { color:var(--syntax-title); text-decoration:underline; }
 .tiptap table { border-collapse:collapse; width:100%; table-layout:fixed; margin:1em 0; }

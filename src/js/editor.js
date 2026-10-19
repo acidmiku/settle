@@ -2,7 +2,7 @@ import { $, escapeHtml } from './utils.js';
 import { invoke } from './api.js';
 import { toast } from './toast.js';
 import { LANGUAGES, languageName, normalizeSyntax } from './languages.js';
-import { detectSyntax, highlight, renderMarkdown } from './syntax.js';
+import { detectSyntax, highlight, markWhitespace, renderMarkdown } from './syntax.js';
 import { createRichEditor } from './rich-editor.js';
 
 export function createEditor(onChange, onOptionsChange, settings) {
@@ -10,7 +10,7 @@ export function createEditor(onChange, onOptionsChange, settings) {
   const preview = $('markdown-preview'), selector = $('syntax-select');
   let lastTarget = input, designSelection = null, redline = false, source = '';
   let syntax = 'auto', language = 'plaintext', previewing = false, composing = false, highlightTimer;
-  let rich = null;
+  let rich = null, whitespace = false;
   let lineNumbers = settings.line_numbers !== 'false', metricKey = '', heights = [], offsets = [];
   selector.innerHTML = '<option value="auto">Auto · Plain text</option>' + LANGUAGES.map(([id,name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
 
@@ -43,9 +43,10 @@ export function createEditor(onChange, onOptionsChange, settings) {
   }
   function paint() {
     // Keep every glyph's metrics identical to the native textarea, including tabs.
-    $('syntax-content').innerHTML = highlight(input.value, language) + '\n';
-    input.classList.toggle('highlighted', language !== 'plaintext');
-    layer.hidden = language === 'plaintext';
+    const html = highlight(input.value, language), overlay = whitespace || language !== 'plaintext';
+    $('syntax-content').innerHTML = (whitespace ? markWhitespace(html) : html) + '\n';
+    input.classList.toggle('highlighted', overlay);
+    layer.hidden = !overlay;
     updateMetrics();
   }
   function refreshSyntax() {
@@ -96,7 +97,7 @@ export function createEditor(onChange, onOptionsChange, settings) {
     if (previewing || rich || !input.clientWidth) return;
     const lines = input.value.split('\n'), css = getComputedStyle(input);
     const leading = parseFloat(css.lineHeight);
-    const key = [input.clientWidth, css.font, css.padding, input.wrap, redline, document.documentElement.dataset.design, input.value].join('|');
+    const key = [input.clientWidth, css.font, css.padding, css.tabSize, input.wrap, redline, document.documentElement.dataset.design, input.value].join('|');
     if (key !== metricKey) {
       metricKey = key;
       if (input.wrap === 'off') heights = lines.map(() => leading);
@@ -244,7 +245,8 @@ export function createEditor(onChange, onOptionsChange, settings) {
   window.addEventListener('settle:design-changed',layoutChanged);
   window.addEventListener('settle:word-wrap-changed',layoutChanged);
   layoutChanged();
-  return {input, title, setText, setBuffer, getText:() => source, focus, select, updateMetrics, revealSource};
+  function setWhitespace(show) { whitespace = show; paint(); }
+  return {input, title, setText, setBuffer, getText:() => source, focus, select, updateMetrics, revealSource, setWhitespace};
 }
 
 export function createFind(editor) {
