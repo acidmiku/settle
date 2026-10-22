@@ -39,6 +39,8 @@ Toggle **Line numbers** in the footer in any design. The preference applies acro
 
 Use `Ctrl/Cmd+F` to find text in the current tab, then `F3` or `Shift+F3` to move through matches.
 
+The footer shows the caret position and the note's **character count**. While text is selected, the count changes to the selection, such as `3 lines, 46 characters selected`. In WYSIWYG it shows words and characters of the visible text.
+
 ### Indentation
 
 `Tab` indents in the source editor and `Shift+Tab` outdents. With several lines selected, both act on every selected line. Native Undo reverses each indent.

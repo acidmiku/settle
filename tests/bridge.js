@@ -11,7 +11,7 @@ export function installTestBridge({platform = 'windows', namespace = 'test.db', 
         if (command === 'create_note' && args.content === window.testState.failContent) throw new Error('Simulated tab save failure');
         switch(command) {
           case 'get_settings': return data.settings;
-          case 'get_runtime_info': return {platform,version:'0.2.5'};
+          case 'get_runtime_info': return {platform,version:'0.2.6'};
           case 'get_start_with_os': return data.startWithOs === true;
           case 'set_start_with_os': data.startWithOs = args.enabled; persist(); return data.startWithOs;
           case 'check_for_update': return window.testState.update || null;

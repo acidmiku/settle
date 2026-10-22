@@ -1,6 +1,6 @@
 import { Editor, StarterKit, Markdown, TableKit, TaskList, TaskItem, Image, TextSelection, canSplit } from '../vendor/wysiwyg.js';
 import { DOMPurify, marked } from '../vendor/editor.js';
-import { $, editItem } from './utils.js';
+import { $, editItem, characterStats, formatCount } from './utils.js';
 
 // Image references survive Markdown round trips without contacting remote servers.
 const LocalImage = Image.extend({
@@ -81,7 +81,8 @@ export function createRichEditor(text, onChange) {
     $('rich-heading').value = String(editor.isActive('heading') ? editor.getAttributes('heading').level : 0);
     toolbar.querySelector('[data-rich="undo"]').disabled = !editor.can().undo();
     toolbar.querySelector('[data-rich="redo"]').disabled = !editor.can().redo();
-    $('editor-stats').textContent = `${editor.getText().trim().split(/\s+/u).filter(Boolean).length} words`;
+    const {doc, selection} = editor.state, words = editor.getText().trim().split(/\s+/u).filter(Boolean).length;
+    $('editor-stats').textContent = `${formatCount(words, 'word')} · ${characterStats(doc.textBetween(0, doc.content.size, '\n'), doc.textBetween(selection.from, selection.to, '\n'))}`;
   }
   const actions = {
     bold:() => editor.chain().focus().toggleBold().run(), italic:() => editor.chain().focus().toggleItalic().run(),

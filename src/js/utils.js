@@ -4,6 +4,15 @@ export const isMod = (e) => isMac() ? e.metaKey : e.ctrlKey;
 export function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// Code points, so an emoji counts once; newlines count, as in Sublime's status bar.
+export const countCharacters = text => text.length - (text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length || 0);
+export const formatCount = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+// The note's total, replaced by the selection's size while text is selected.
+export function characterStats(text, selected = '') {
+  if (!selected) return formatCount(countCharacters(text), 'character');
+  const lines = selected.split('\n').length - (selected.endsWith('\n') ? 1 : 0);
+  return `${lines > 1 ? formatCount(lines, 'line') + ', ' : ''}${formatCount(countCharacters(selected), 'character')} selected`;
+}
 export function debounce(fn, ms) {
   let timer;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };

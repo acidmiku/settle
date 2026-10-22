@@ -50,7 +50,7 @@ svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.5;
 .action + .action { border-left:1px solid var(--line); }
 kbd { font:12px var(--mono); font-weight:400; padding:4px 8px; border:1px solid var(--line); border-radius:4px; color:inherit; white-space:nowrap; }
 .actionbar kbd { border-color:var(--muted); }
-.editor-stats { margin-left:auto; align-self:center; color:var(--muted); font:11px var(--mono); white-space:nowrap; }
+.editor-stats { margin-left:auto; padding-left:12px; min-width:0; overflow:hidden; text-overflow:ellipsis; align-self:center; color:var(--muted); font:11px var(--mono); white-space:nowrap; }
 .action-hide { margin-left:12px; }
 .find-bar { display:flex; align-items:center; gap:12px; padding:9px 18px; background:var(--chrome); border-top:1px solid var(--line); }
 .find-bar input { flex:1; }

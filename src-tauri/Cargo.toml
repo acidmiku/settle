@@ -1,6 +1,6 @@
 [package]
 name = "settle"
-version = "0.2.5"
+version = "0.2.6"
 description = "Settle — a local, editor-first notebook"
 authors = ["you"]
 license = "MIT"

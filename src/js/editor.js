@@ -1,4 +1,4 @@
-import { $, escapeHtml } from './utils.js';
+import { $, escapeHtml, characterStats } from './utils.js';
 import { invoke } from './api.js';
 import { toast } from './toast.js';
 import { LANGUAGES, languageName, normalizeSyntax } from './languages.js';
@@ -119,18 +119,23 @@ export function createEditor(onChange, onOptionsChange, settings) {
       offsets = heights.map(height => { const y = top; top += height; return y; });
       $('line-number-content').innerHTML = heights.map((height,i) => `<span style="height:${height}px">${String(i + 1 + (redline ? 1 : 0)).padStart(document.documentElement.dataset.design === 'optic' ? 2 : 1,'0')}</span>`).join('');
     }
-    const before = input.value.slice(0,input.selectionStart), current = before.split('\n').length;
-    const col = before.length - before.lastIndexOf('\n');
+    const current = input.value.slice(0,input.selectionStart).split('\n').length;
     const gutter = $('line-number-content');
     gutter.querySelector('.current')?.classList.remove('current');
     gutter.children[current - 1]?.classList.add('current');
     gutter.style.transform = `translateY(${-input.scrollTop}px)`;
     $('active-line').style.top = `${parseFloat(css.paddingTop) + (offsets[current - 1] || 0) - input.scrollTop}px`;
     $('active-line').style.height = `${heights[current - 1] || leading}px`;
-    $('editor-stats').textContent = redline && document.activeElement === title ? `Ln 1, Col ${title.selectionStart + 1}` : `Ln ${current + (redline ? 1 : 0)}, Col ${col}`;
+    updateStats();
     layer.style.width = `${input.clientWidth}px`;
     layer.style.height = `${input.clientHeight}px`;
     layer.scrollTop = input.scrollTop; layer.scrollLeft = input.scrollLeft;
+  }
+  function updateStats() {
+    const target = redline && document.activeElement === title ? title : input;
+    const before = input.value.slice(0,input.selectionStart);
+    const position = target === title ? `Ln 1, Col ${title.selectionStart + 1}` : `Ln ${before.split('\n').length + (redline ? 1 : 0)}, Col ${before.length - before.lastIndexOf('\n')}`;
+    $('editor-stats').textContent = `${position} · ${characterStats(source, target.value.slice(target.selectionStart,target.selectionEnd))}`;
   }
   function layoutChanged() {
     const caret = selection(), scroll = [input.scrollTop,input.scrollLeft];
@@ -241,6 +246,10 @@ export function createEditor(onChange, onOptionsChange, settings) {
     }
   });
   for (const target of [input,title]) ['click','keyup','scroll','select'].forEach(event => target.addEventListener(event,updateMetrics));
+  // Selection counts follow mouse drags and Shift+arrow selections as they happen.
+  document.addEventListener('selectionchange', () => {
+    if (!previewing && !rich && [input,title].includes(document.activeElement)) updateStats();
+  });
   new ResizeObserver(updateMetrics).observe(input);
   window.addEventListener('settle:design-changed',layoutChanged);
   window.addEventListener('settle:word-wrap-changed',layoutChanged);
