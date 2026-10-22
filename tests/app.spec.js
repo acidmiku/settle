@@ -858,12 +858,14 @@ test('footer counts characters and shows the selection size while selecting', as
   await page.locator('#syntax-select').selectOption('plaintext');
   await editor.fill('alpha\nbeta 👍');
   await expect(stats).toHaveText(/ · 12 characters$/);
-  await editor.press('ControlOrMeta+Home');
+  // Home and End do not move the caret on macOS, so place it directly and select with arrows.
+  await editor.evaluate(el => { el.setSelectionRange(0,0); el.dispatchEvent(new Event('select')); });
   await expect(stats).toHaveText('Ln 1, Col 1 · 12 characters');
   await editor.press('Shift+ArrowRight');
   await expect(stats).toHaveText('Ln 1, Col 1 · 1 character selected');
   await editor.press('Shift+ArrowDown');
-  await editor.press('Shift+Home');
+  await expect(stats).toHaveText('Ln 1, Col 1 · 2 lines, 7 characters selected');
+  await editor.press('Shift+ArrowLeft');
   await expect(stats).toHaveText('Ln 1, Col 1 · 6 characters selected');
   await editor.press('Shift+ArrowRight');
   await editor.press('Shift+ArrowRight');
@@ -874,7 +876,7 @@ test('footer counts characters and shows the selection size while selecting', as
   await page.locator('#note-title').focus();
   await page.locator('#note-title').press('ControlOrMeta+a');
   await expect(stats).toHaveText('Ln 1, Col 1 · 5 characters selected');
-  await page.locator('#note-title').press('End');
+  await page.locator('#note-title').press('ArrowRight');
   await expect(stats).toHaveText('Ln 1, Col 6 · 12 characters');
   await page.evaluate(() => { document.documentElement.dataset.design = 'scratch'; window.dispatchEvent(new Event('settle:design-changed')); });
   await page.locator('#syntax-select').selectOption('markdown');
